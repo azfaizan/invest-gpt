@@ -1,0 +1,41 @@
+variables:
+   DOCKERID: $(STG_DOCKERID)
+   DOCKERPASSWORD: $(STG_DOCKERPASSWORD)
+   imageName: 'testing-investgpt:$(Build.BuildId)'
+   TOKEN: $(INVESTGPT_TEST_TOKEN)
+   ACR_NAME: $(STG_ACR_NAME)
+   SERVICE_CONNECTION: $(STG_SERVICE_CONNECTION)
+   RESOURCE_GROUP: $(STG_RESOURCE_GROUP)
+   APPNAME: testing-investgpt
+
+trigger:
+- none
+pool:
+  vmImage: 'Ubuntu 20.04'
+steps:
+  - task: Bash@3
+    inputs:
+      targetType: 'inline'
+      script: |
+          curl --request POST -u $(serviceaccount):$(SERVICE_TOKEN) 'https://deploymentnotification.azurewebsites.net/api/notificationfunction?code=$(DEPLOYMENT_NOTIFICATION_KEY)' \
+          --header 'Content-Type: application/json' \
+          --data '{"message": {"text": "Deployment on $(Build.DefinitionName) is Started"}}'
+  - script: docker build --build-arg INVESTGPT_TOKEN=$(TOKEN) -t $(ACR_NAME)/$(imageName) .
+    displayName: 'docker build'
+  - script: docker login -u $(DOCKERID) -p $(DOCKERPASSWORD) $(ACR_NAME)
+    displayName: 'docker login'
+  - script: docker push $(ACR_NAME)/$(imageName)
+    displayName: 'docker push'
+  - task: AzureContainerApps@1
+    inputs:
+      azureSubscription: '$(SERVICE_CONNECTION)'
+      containerAppName: '$(APPNAME)'
+      resourceGroup: '$(RESOURCE_GROUP)'
+      imageToDeploy: '$(ACR_NAME)/$(imageName)'
+  - task: Bash@3
+    inputs:
+      targetType: 'inline'
+      script: |
+          curl --request POST -u $(serviceaccount):$(SERVICE_TOKEN) 'https://deploymentnotification.azurewebsites.net/api/notificationfunction?code=$(DEPLOYMENT_NOTIFICATION_KEY)' \
+          --header 'Content-Type: application/json' \
+          --data '{"message": {"text": "Deployment on $(Build.DefinitionName) is $(Agent.JobStatus)"}}'      

@@ -1,0 +1,55 @@
+variables:
+ ${{ if eq(variables['Build.SourceBranchName'], 'develop') }}:
+   DOCKERID: $(STG_DOCKERID)
+   DOCKERPASSWORD: $(STG_DOCKERPASSWORD)
+   imageName: 'staging-investgpt:$(Build.BuildId)'
+   TOKEN: $(INVESTGPT_STG_TOKEN)
+   ACR_NAME: $(STG_ACR_NAME)
+   SERVICE_CONNECTION: $(STG_SERVICE_CONNECTION)
+   RESOURCE_GROUP: $(STG_RESOURCE_GROUP)
+   APPNAME: staging-investgpt
+   DEPLOYMENT_NOTIFICATION_KEY: $(STG_DEPLOYMENT_NOTIFICATION_KEY)
+
+ ${{ if eq(variables['Build.SourceBranchName'], 'main') }}:
+   DOCKERID: $(PRD_DOCKERID)
+   DOCKERPASSWORD: $(PRD_DOCKERPASSWORD)
+   imageName: 'production-investgpt:$(Build.BuildId)'
+   TOKEN: $(INVESTGPT_PRD_TOKEN)
+   ACR_NAME: $(PRD_ACR_NAME)
+   SERVICE_CONNECTION: $(PRD_SERVICE_CONNECTION)
+   RESOURCE_GROUP: $(PRD_RESOURCE_GROUP)
+   APPNAME: production-investgpt
+   DEPLOYMENT_NOTIFICATION_KEY: $(PRD_DEPLOYMENT_NOTIFICATION_KEY)
+
+trigger:
+- develop
+- main
+pool:
+  vmImage: 'Ubuntu 20.04'
+steps:
+  - task: Bash@3
+    inputs:
+      targetType: 'inline'
+      script: |
+          curl --request POST -u $(serviceaccount):$(SERVICE_TOKEN) 'https://deploymentnotification.azurewebsites.net/api/notificationfunction?code=$(DEPLOYMENT_NOTIFICATION_KEY)' \
+          --header 'Content-Type: application/json' \
+          --data '{"message": {"text": "Deployment on $(Build.DefinitionName) is Started"}}'
+  - script: docker build --build-arg INVESTGPT_TOKEN=$(TOKEN) -t $(ACR_NAME)/$(imageName) .
+    displayName: 'docker build'
+  - script: docker login -u $(DOCKERID) -p $(DOCKERPASSWORD) $(ACR_NAME)
+    displayName: 'docker login'
+  - script: docker push $(ACR_NAME)/$(imageName)
+    displayName: 'docker push'
+  - task: AzureContainerApps@1
+    inputs:
+      azureSubscription: '$(SERVICE_CONNECTION)'
+      containerAppName: '$(APPNAME)'
+      resourceGroup: '$(RESOURCE_GROUP)'
+      imageToDeploy: '$(ACR_NAME)/$(imageName)'
+  - task: Bash@3
+    inputs:
+      targetType: 'inline'
+      script: |
+          curl --request POST -u $(serviceaccount):$(SERVICE_TOKEN) 'https://deploymentnotification.azurewebsites.net/api/notificationfunction?code=$(DEPLOYMENT_NOTIFICATION_KEY)' \
+          --header 'Content-Type: application/json' \
+          --data '{"message": {"text": "Deployment on $(Build.DefinitionName) is $(Agent.JobStatus)"}}'      
