@@ -14,65 +14,17 @@ from src.visualization.plot_utils import create_plot, create_subplots
 from src.statics import STATICS
 from datetime import datetime
 
-
-
-
-
 class WebSearchInput(BaseModel):
     query: str = Field(..., description="The search query about cryptocurrency information")
     days: int = Field(7, description="Number of days to look back")
     include_domains: Optional[List[str]] = Field(None, description="List of domains to include in search")
     exclude_domains: Optional[List[str]] = Field(None, description="List of domains to exclude from search")
 
-
-class WebSearchTool(BaseTool):
-    name: ClassVar[str] = "web_search"
-    description: ClassVar[str] = STATICS["web_search"]
-    
-    def _run(self, query: str) -> dict:
-        """Execute with a string input (the search query)"""
-        return web_search(
-            query=query,
-            days=7,
-            include_domains=None,
-            exclude_domains=None
-        )
-
-
 class CryptoMetaInfoInput(BaseModel):
     slug: str = Field(..., description="Cryptocurrency slug (e.g., 'bitcoin')")
 
-
-class CryptoMetaInfoTool(BaseTool):
-    name: ClassVar[str] = "cryptocurrency_meta_info"
-    description: ClassVar[str] = STATICS["cryptocurrency_meta_info"]
-    
-    def _run(self, slug: str) -> dict:
-        """Execute with a string input (the cryptocurrency slug)"""
-        return cryptocurrency_meta_info(slug=slug)
-
-
 class CryptoPriceStatsInput(BaseModel):
     id: str = Field(..., description="Cryptocurrency ID from CoinMarketCap")
-
-
-class CryptoPriceStatsTool(BaseTool):
-    name: ClassVar[str] = "cryptocurrency_price_performance_stats"
-    description: ClassVar[str] = STATICS["cryptocurrency_price_performance_stats"]
-    
-    def _run(self, id: str) -> dict:
-        """Execute with a string input (the cryptocurrency ID)"""
-        return cryptocurrency_price_performance_stats(id=id)
-
-
-class PortfolioTool(BaseTool):
-    name: ClassVar[str] = "portfolio"
-    description: ClassVar[str] = STATICS["portfolio"]
-    
-    def _run(self, _: str = "") -> dict:
-        """Execute with no specific input required"""
-        return portfolio()
-
 
 class CreatePlotInput(BaseModel):
     data: List[Dict[str, Any]] = Field(..., description="Input data as list of dictionaries")
@@ -86,6 +38,88 @@ class CreatePlotInput(BaseModel):
     width: int = Field(800, description="Width of the plot in pixels")
     height: int = Field(600, description="Height of the plot in pixels")
 
+class CreateSubplotsInput(BaseModel):
+    data: Dict[int, Dict[str, Dict[str, Any]]] = Field(..., 
+        description="Dictionary containing data for plots {subplot_idx: {trace_name: {x: [], y: [], text: []}}}")
+    plot_types: List[str] = Field(..., 
+        description="List of plot types ('bar', 'pie', 'scatter', etc.) for each subplot")
+    rows: int = Field(1, description="Number of rows")
+    cols: int = Field(2, description="Number of columns")
+    subplot_titles: Optional[List[str]] = Field(None, description="Titles for each subplot")
+    title: str = Field("Dynamic Subplots", description="Main figure title")
+    height: int = Field(600, description="Figure height")
+    width: Optional[int] = Field(None, description="Figure width")
+    barmode: str = Field('group', description="'group', 'stack', or 'relative' for bar plots")
+
+class CryptoHistoricalQuotesInput(BaseModel):
+    id: str = Field(..., description="Comma-separated list of cryptocurrency IDs from CoinMarketCap (e.g., '1,1027' for Bitcoin and Ethereum)")
+    time_start: str = Field(..., description="Start time in ISO 8601 format (e.g., '2024-04-01')")
+    time_end: str = Field(..., description="End time in ISO 8601 format (e.g., '2025-04-01')")
+    count: int = Field(1, description="Number of data points to return")
+    interval: str = Field("daily", description="Time interval between data points ('daily', 'hourly', etc)")
+
+class WebSearchTool(BaseTool):
+    name: ClassVar[str] = "web_search"
+    description: ClassVar[str] = STATICS["web_search"]
+    
+    def _run(
+        self, 
+        query: str = "", 
+        days: int = 7,
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None
+    ) -> dict:
+        """
+        Execute with either a string input or structured parameters
+        
+        Args:
+            query: The search query
+            days: Number of days to look back
+            include_domains: List of domains to include in search
+            exclude_domains: List of domains to exclude from search
+        """
+        print(f"DEBUG - WebSearchTool received input: query='{query}', days={days}")
+        
+        # Handle case where input is just a string (basic query)
+        if not include_domains and not exclude_domains and query:
+            return web_search(
+                query=query,
+                days=days,
+                include_domains=None,
+                exclude_domains=None
+            )
+            
+        # Handle structured input case
+        return web_search(
+            query=query,
+            days=days,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains
+        )
+
+class CryptoMetaInfoTool(BaseTool):
+    name: ClassVar[str] = "cryptocurrency_meta_info"
+    description: ClassVar[str] = STATICS["cryptocurrency_meta_info"]
+    
+    def _run(self, slug: str) -> dict:
+        """Execute with a string input (the cryptocurrency slug)"""
+        return cryptocurrency_meta_info(slug=slug)
+
+class CryptoPriceStatsTool(BaseTool):
+    name: ClassVar[str] = "cryptocurrency_price_performance_stats"
+    description: ClassVar[str] = STATICS["cryptocurrency_price_performance_stats"]
+    
+    def _run(self, id: str) -> dict:
+        """Execute with a string input (the cryptocurrency ID)"""
+        return cryptocurrency_price_performance_stats(id=id)
+
+class PortfolioTool(BaseTool):
+    name: ClassVar[str] = "portfolio"
+    description: ClassVar[str] = STATICS["portfolio"]
+    
+    def _run(self, _: str = "") -> dict:
+        """Execute with no specific input required"""
+        return portfolio()
 
 class CreatePlotTool(BaseTool):
     name: ClassVar[str] = "create_plot"
@@ -157,21 +191,6 @@ class CreatePlotTool(BaseTool):
         # Return HTML representation of the plot
         return fig.to_html(full_html=False, include_plotlyjs='cdn')
 
-
-class CreateSubplotsInput(BaseModel):
-    data: Dict[int, Dict[str, Dict[str, Any]]] = Field(..., 
-        description="Dictionary containing data for plots {subplot_idx: {trace_name: {x: [], y: [], text: []}}}")
-    plot_types: List[str] = Field(..., 
-        description="List of plot types ('bar', 'pie', 'scatter', etc.) for each subplot")
-    rows: int = Field(1, description="Number of rows")
-    cols: int = Field(2, description="Number of columns")
-    subplot_titles: Optional[List[str]] = Field(None, description="Titles for each subplot")
-    title: str = Field("Dynamic Subplots", description="Main figure title")
-    height: int = Field(600, description="Figure height")
-    width: Optional[int] = Field(None, description="Figure width")
-    barmode: str = Field('group', description="'group', 'stack', or 'relative' for bar plots")
-
-
 class CreateSubplotsTool(BaseTool):
     name: ClassVar[str] = "create_subplots"
     description: ClassVar[str] = STATICS["create_subplots"]
@@ -233,15 +252,6 @@ class CreateSubplotsTool(BaseTool):
         
         # Return HTML representation of the plot
         return fig.to_html(full_html=False, include_plotlyjs='cdn')
-
-
-class CryptoHistoricalQuotesInput(BaseModel):
-    id: str = Field(..., description="Comma-separated list of cryptocurrency IDs from CoinMarketCap (e.g., '1,1027' for Bitcoin and Ethereum)")
-    time_start: str = Field(..., description="Start time in ISO 8601 format (e.g., '2024-04-01')")
-    time_end: str = Field(..., description="End time in ISO 8601 format (e.g., '2025-04-01')")
-    count: int = Field(1, description="Number of data points to return")
-    interval: str = Field("daily", description="Time interval between data points ('daily', 'hourly', etc)")
-
 
 class CryptoHistoricalQuotesTool(BaseTool):
     name: ClassVar[str] = "cryptocurrency_historical_quotes"
@@ -313,7 +323,6 @@ class CryptoHistoricalQuotesTool(BaseTool):
         # Check if result is an error
         return result
 
-
 class GetCurrentDateTool(BaseTool):
     name: ClassVar[str] = "get_current_date"
     description: ClassVar[str] = """
@@ -321,10 +330,9 @@ class GetCurrentDateTool(BaseTool):
     Returns: Current date and time in ISO 8601 format.
     """
     
-    def _run(self, ) -> str:
+    def _run(self, _: str = "") -> str:
         """Get the current date in ISO 8601 format"""
-        return datetime.today().date()
-
+        return f"Today's date is: {datetime.today().date()}"
 
 class CryptoSearchTool(BaseTool):
     name: ClassVar[str] = "crypto_search"
@@ -334,52 +342,8 @@ class CryptoSearchTool(BaseTool):
         """Search for cryptocurrencies and stocks by name or symbol"""
         try:
             matches = search_coins(query, threshold, limit)
-            
-            if not matches:
-                return f"No assets found matching '{query}'. Try a different query or lower the threshold."
-            
-            # Format the results as HTML
-            html_result = f"""
-            <div style="font-family: Arial, sans-serif; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
-                <h3>Search Results for "{query}"</h3>
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tr style="background-color: #f2f2f2;">
-                        <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">ID/Rank</th>
-                        <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Name</th>
-                        <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Slug/Ticker</th>
-                        <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Match Score</th>
-                    </tr>
-            """
-            
-            for coin_info, score in matches:
-                # Parse the coin_info string (format: "rank name slug")
-                parts = coin_info.split(' ', 2)  # Split into at most 3 parts
-                if len(parts) >= 3:
-                    rank, name, slug = parts
-                    html_result += f"""
-                    <tr style="border-bottom: 1px solid #ddd;">
-                        <td style="padding: 8px;">{rank}</td>
-                        <td style="padding: 8px;">{name}</td>
-                        <td style="padding: 8px;">{slug}</td>
-                        <td style="padding: 8px;">{score}%</td>
-                    </tr>
-                    """
-            
-            html_result += """
-                </table>
-                <p style="margin-top: 10px; font-size: 0.8em; color: #666;">
-                    Note: Use the ID/Rank value when querying other tools that require an asset ID.
-                </p>
-            </div>
-            """
-            
-            return html_result
+            return matches
             
         except Exception as e:
-            error_message = f"Error searching for assets: {str(e)}"
-            return f"""
-            <div style="color: red; padding: 10px; border: 1px solid red; border-radius: 5px;">
-                <h3>Search Error</h3>
-                <p>{error_message}</p>
-            </div>
-            """
+            return f"Error searching for assets: {str(e)}"
+            

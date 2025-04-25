@@ -6,6 +6,8 @@ import logging
 from dotenv import load_dotenv
 from tavily import TavilyClient
 from fuzzywuzzy import fuzz
+from src.statics import CRYPTO_LIST, EXCHANGE_LIST, LAST_REFRESH, CACHE_DURATION, COIN_MARKET_CAP_API_BASE_URL ,INVESTMENT_MARKET_API_BASE_URL
+import time
 
 # Load environment variables
 load_dotenv()
@@ -14,6 +16,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+tavily_client= None
 # Initialize Tavily client
 try:
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
@@ -43,7 +46,7 @@ def handle_request_error(func):
 
 @handle_request_error
 def get_new_token(): 
-    conn = http.client.HTTPConnection("api-stg-invmkt.agentmarket.ae")
+    conn = http.client.HTTPConnection(INVESTMENT_MARKET_API_BASE_URL)
     payload = json.dumps({
         "refreshToken": os.getenv("REFRESH_TOKEN"),
         "userName": os.getenv("USER_NAME")
@@ -79,6 +82,7 @@ def web_search(query, days=7, include_domains=None, exclude_domains=None):
     Returns:
         dict: Search results and information from the web
     """
+    global tavily_client
     if not tavily_client:
         return {"status": 1, "error": "Tavily client is not initialized"}
     
@@ -114,7 +118,7 @@ def web_search(query, days=7, include_domains=None, exclude_domains=None):
 def stats_bond_meta(slug):
     """Get detailed metadata for a cryptocurrency by its slug"""
     CMC_API_KEY = os.getenv("CMC_PRO_API_KEY")
-    conn = http.client.HTTPSConnection("pro-api.coinmarketcap.com")
+    conn = http.client.HTTPSConnection(COIN_MARKET_CAP_API_BASE_URL)
     headers = {
       'X-CMC_PRO_API_KEY': CMC_API_KEY,
       'Accept': '*/*'
@@ -180,7 +184,7 @@ def cryptocurrency_price_performance_stats(id):
     """
     print("*"*10,id)
     CMC_API_KEY = os.getenv("CMC_PRO_API_KEY")
-    conn = http.client.HTTPSConnection("pro-api.coinmarketcap.com")
+    conn = http.client.HTTPSConnection(COIN_MARKET_CAP_API_BASE_URL)
     headers = {
         'X-CMC_PRO_API_KEY': CMC_API_KEY,
         'Accept': '*/*'
@@ -251,7 +255,7 @@ def portfolio_crypto():
     if not barear:
         return {"error": "Authentication token is not available"}
         
-    conn = http.client.HTTPConnection("api-stg-invmkt.agentmarket.ae")
+    conn = http.client.HTTPConnection(INVESTMENT_MARKET_API_BASE_URL)
     headers = {
         'Authorization': barear,
     }
@@ -263,7 +267,8 @@ def portfolio_crypto():
 @handle_request_error
 def cryptocurrency_historical_quotes(id_list, time_start, time_end, count=1, interval="daily", attributes=["price", "market_cap"], convert="USD"):
     """
-    Get historical price quotes for one or more cryptocurrencies over a specified time period, returning specified attributes as a formatted string.
+    Get historical price quotes for one or more cryptocurrencies over a specified time period,
+    storing data in a DataFrame and returning summarized statistics of specified attributes.
     
     Args:
         id_list (str): Comma-separated list of cryptocurrency IDs from CoinMarketCap
@@ -275,7 +280,7 @@ def cryptocurrency_historical_quotes(id_list, time_start, time_end, count=1, int
         convert (str, optional): Currency to convert quotes to. Defaults to 'USD'.
         
     Returns:
-        str: Formatted string of historical quotes in the format "{datetime,attribute}{datetime:attribute}"
+        dict: Summary statistics of historical data and plotting information
     """
     print(f"DEBUG - cryptocurrency_historical_quotes called with: id_list={id_list}, time_start={time_start}, time_end={time_end}, count={count}, interval={interval}, attributes={attributes}, convert={convert}")
     
@@ -284,7 +289,11 @@ def cryptocurrency_historical_quotes(id_list, time_start, time_end, count=1, int
         return "{error:No cryptocurrency IDs provided}"
         
     CMC_API_KEY = os.getenv("CMC_PRO_API_KEY")
-    conn = http.client.HTTPSConnection("pro-api.coinmarketcap.com")
+    if not CMC_API_KEY:
+        logger.error("CMC API key not found")
+        return "{error:CMC API key not found}"
+    
+    conn = http.client.HTTPSConnection(COIN_MARKET_CAP_API_BASE_URL)
     headers = {
         'X-CMC_PRO_API_KEY': CMC_API_KEY,
         'Accept': '*/*'
@@ -294,111 +303,201 @@ def cryptocurrency_historical_quotes(id_list, time_start, time_end, count=1, int
     endpoint = f"/v1/cryptocurrency/quotes/historical?id={id_list}&time_start={time_start}&time_end={time_end}&count={count}&interval={interval}&convert={convert}"
     print(f"DEBUG - API endpoint: {endpoint}")
     
-    conn.request("GET", endpoint, "", headers)
-    res = conn.getresponse()
-    data = res.read()
-    raw_response = data.decode("utf-8")
-    print(f"DEBUG - API raw response: {raw_response[:200]}...")
-    
     try:
+        conn.request("GET", endpoint, "", headers)
+        res = conn.getresponse()
+        data = res.read()
+        raw_response = data.decode("utf-8")
+        print(f"DEBUG - API raw response: {raw_response[:200]}...")
+        
         result = json.loads(raw_response)
         
-        if "data" in result:
-            output = []
-            for crypto_id, crypto_data in result["data"].items():
-                for quote in crypto_data["quotes"]:
-                    timestamp = quote["timestamp"]
-                    currency_data = quote["quote"][convert]
-                    for attr in attributes:
-                        if attr in currency_data:
-                            output.append(f"{{{timestamp},{attr}:{currency_data[attr]}}}")
-            return "".join(output)
-        else:
+        if "data" not in result:
             error_message = result.get("status", {}).get("error_message", "Unknown error")
             logger.error(f"API error in cryptocurrency_historical_quotes: {error_message}")
             return f"{{error:{error_message}}}"
+        
+        output = []
+        data = result["data"]
+        
+        # Handle response1 (multiple IDs) or response2 (single ID)
+        if isinstance(data, dict) and all(k.isdigit() for k in data.keys()):  # response1: {"1": {"quotes": [...]}, ...}
+            for crypto_id, crypto_info in data.items():
+                for crypto_data in crypto_info.get("quotes", []):
+                    timestamp = crypto_data["timestamp"]
+                    currency_data = crypto_data["quote"].get(convert, {})
+                    for attr in attributes:
+                        if attr in currency_data:
+                            output.append(f"{{{timestamp},{crypto_id},{attr}:{currency_data[attr]}}}")
+        else:  # response2: {"quotes": [...]}
+            # Assume single ID from id_list (first ID)
+            single_id = id_list.split(",")[0] if "," in id_list else id_list
+            for crypto_data in data.get("quotes", []):
+                timestamp = crypto_data["timestamp"]
+                currency_data = crypto_data["quote"].get(convert, {})
+                for attr in attributes:
+                    if attr in currency_data:
+                        output.append(f"{{{timestamp},{single_id},{attr}:{currency_data[attr]}}}")
+        
+        return "".join(output) if output else "{error:No valid data found}"
+        
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse API response: {str(e)}")
         return f"{{error:Failed to parse API response: {str(e)}}}"
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        return f"{{error:Unexpected error: {str(e)}}}"
+    finally:
+        conn.close()
 
-# Example stock data (to be replaced with real API data in production)
-example_stocks = [
-    "1 Apple apple",
-    "2 Microsoft msft",
-    "3 Alphabet googl",
-    "4 Amazon amzn",
-    "5 Tesla tsla",
-    "6 Meta meta",
-    "7 Nvidia nvda",
-    "8 JPMorgan Chase jpm",
-    "9 Visa v",
-    "10 Walmart wmt",
-    "11 Johnson & Johnson jnj",
-    "12 Procter & Gamble pg",
-    "13 Mastercard ma",
-    "14 UnitedHealth Group unh",
-    "15 Exxon Mobil xom",
-    "16 Home Depot hd",
-    "17 Bank of America bac",
-    "18 Chevron cvx",
-    "19 Coca-Cola ko",
-    "20 Pfizer pfe"
-]
-
-@handle_request_error
-def search_coins(query, threshold=70, limit=10):
+def fetch_coinmarketcap_data():
     """
-    Search for cryptocurrencies and stocks by name, symbol, or partial match
+    Fetch data from CoinMarketCap API for cryptocurrencies and exchanges.
+    
+    Returns:
+        tuple: (crypto_list, exchange_list)
+        - crypto_list: List of comma-separated strings (id,name,slug) for cryptocurrencies
+        - exchange_list: List of comma-separated strings (id,name,slug) for exchanges
+    """
+    CMC_API_KEY = os.getenv("CMC_PRO_API_KEY")
+    if not CMC_API_KEY:
+        logger.error("CMC_PRO_API_KEY environment variable not set")
+        return [], []
+
+    base_url = "pro-api.coinmarketcap.com"
+    headers = {
+        'X-CMC_PRO_API_KEY': CMC_API_KEY,
+        'Accept': 'application/json'
+    }
+    
+    # Initialize lists for results
+    crypto_list = []
+    exchange_list = []
+    
+    # Endpoints to fetch
+    endpoints = [
+        "/v1/cryptocurrency/map",
+        "/v1/exchange/map"
+    ]
+    
+    conn = http.client.HTTPSConnection(base_url)
+    
+    try:
+        for endpoint in endpoints:
+            logger.info(f"Fetching data from {endpoint}")
+            conn.request("GET", endpoint, "", headers)
+            res = conn.getresponse()
+            data = res.read()
+            api_data = json.loads(data.decode("utf-8"))
+            
+            # Check for API errors
+            if api_data.get("status", {}).get("error_code", 1) != 0:
+                logger.error(f"API error for {endpoint}: {api_data.get('status', {}).get('error_message', 'Unknown error')}")
+                continue
+                
+            # Process data
+            if "data" in api_data:
+                for item in api_data["data"]:
+                    item_id = item.get("id", "")
+                    name = item.get("name", "Unknown")
+                    slug = item.get("slug", "")
+                    if item_id and name and slug:
+                        result = f"{item_id},{name},{slug}"
+                        if endpoint == "/v1/cryptocurrency/map":
+                            crypto_list.append(result)
+                        elif endpoint == "/v1/exchange/map":
+                            exchange_list.append(result)
+            else:
+                logger.warning(f"No data found in response for {endpoint}")
+                
+    except Exception as e:
+        logger.error(f"Error fetching data: {str(e)}")
+    finally:
+        conn.close()
+    
+    return crypto_list, exchange_list
+
+def get_coinmarketcap_data():
+    """
+    Get CoinMarketCap data, refreshing only if 24 hours have passed since last refresh.
+    
+    Returns:
+        tuple: (crypto_list, exchange_list)
+    """
+    global CRYPTO_LIST, EXCHANGE_LIST, LAST_REFRESH
+    current_time = time.time()
+    
+    # Check if cache is valid (less than 24 hours old)
+    if CRYPTO_LIST and EXCHANGE_LIST and (current_time - LAST_REFRESH) < CACHE_DURATION:
+        logger.info("Using in-memory data")
+        return CRYPTO_LIST, EXCHANGE_LIST
+    
+    # Refresh data from API
+    logger.info("Refreshing data from CoinMarketCap API")
+    CRYPTO_LIST, EXCHANGE_LIST = fetch_coinmarketcap_data()
+    LAST_REFRESH = time.time()
+    return CRYPTO_LIST, EXCHANGE_LIST
+
+def search_assets(query, threshold=70, limit=10):
+    """
+    Search for cryptocurrencies and exchanges by matching the query against the entire id,name,slug string.
     
     Args:
-        query (str): The name or symbol to search for (e.g., 'bitcoin', 'ethereum', 'apple')
+        query (str): The string to search for (e.g., 'bitcoin', '1,Bitcoin,bitcoin')
         threshold (int, optional): Minimum match score (0-100). Defaults to 70.
         limit (int, optional): Maximum number of results to return. Defaults to 10.
         
     Returns:
-        list: List of tuples containing (asset_info, match_score)
+        tuple: (crypto_matches, exchange_matches)
+        - crypto_matches: List of tuples (asset_string, match_score)
+        - exchange_matches: List of tuples (asset_string, match_score)
+    """
+    if not query:
+        logger.error("No query provided for search_assets")
+        return [], []
+        
+    # Get data (from memory or API)
+    crypto_list, exchange_list = get_coinmarketcap_data()
+    
+    # Initialize match lists
+    crypto_matches = []
+    exchange_matches = []
+    
+    # Search cryptocurrencies
+    for asset in crypto_list:
+        score = fuzz.token_set_ratio(query.lower(), asset.lower())
+        if score >= threshold:
+            crypto_matches.append((asset, score))
+    
+    # Search exchanges
+    for asset in exchange_list:
+        score = fuzz.token_set_ratio(query.lower(), asset.lower())
+        if score >= threshold:
+            exchange_matches.append((asset, score))
+    
+    # Sort matches by score (descending) and limit results
+    crypto_matches.sort(key=lambda x: x[1], reverse=True)
+    exchange_matches.sort(key=lambda x: x[1], reverse=True)
+    
+    return crypto_matches[:limit], exchange_matches[:limit]
+
+@handle_request_error
+def search_coins(query, threshold=70, limit=10):
+    """
+    Search for cryptocurrencies and stocks by name, symbol, or partial match 
+    
+    Args:
+        query (str): The name or symbol or partial name to search for (e.g., 'bitcoin', 'ethereum', 'apple')
+        threshold (int, optional): Minimum match score (0-100). Defaults to 70.
+        limit (int, optional): Maximum number of results to return. Defaults to 10.
+        
+    Returns:
+        list: List of tuples containing (coinmarketcap_id, name, slug, match_score)
     """
     if not query:
         logger.error("No query provided for search_coins")
         return []
-        
-    # Try to get cryptocurrency data from CoinMarketCap API
-    crypto_data = []
-    try:
-        CMC_API_KEY = os.getenv("CMC_PRO_API_KEY")
-        conn = http.client.HTTPSConnection("pro-api.coinmarketcap.com")
-        headers = {
-            'X-CMC_PRO_API_KEY': CMC_API_KEY,
-            'Accept': '*/*'
-        }
-        conn.request("GET", "/v1/cryptocurrency/map", "", headers)
-        res = conn.getresponse()
-        data = res.read()
-        api_data = json.loads(data.decode("utf-8"))
-        
-        if api_data.get("status", {}).get("error_code", 1) == 0 and "data" in api_data:
-            for coin in api_data["data"]:
-                crypto_data.append(f"{coin.get('rank')} {coin.get('name', 'Unknown')} {coin.get('slug')}")
-    except Exception as e:
-        logger.error(f"Error fetching cryptocurrency data: {str(e)}")
-    
-    # Combine with example stocks
-    all_assets = crypto_data + example_stocks
-    
-    # If we couldn't get any data, just use example stocks
-    if not all_assets:
-        all_assets = example_stocks
-        
-    # Search for matches using fuzzy matching
-    matches = []
-    for asset in all_assets:
-        name_score = fuzz.token_set_ratio(query.lower(), asset.lower())
-        if name_score >= threshold:
-            matches.append((asset, name_score))
-            if len(matches) >= limit:
-                break
-    
-    # Sort matches by score (descending)
-    matches.sort(key=lambda x: x[1], reverse=True)
+    crypto_matches, exchange_matches = search_assets(query, threshold=70, limit=5)
+    matches = crypto_matches + exchange_matches
     
     return matches

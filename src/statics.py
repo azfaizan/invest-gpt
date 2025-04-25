@@ -30,16 +30,16 @@ STATICS = {
                                       - time_start (string, required): Start time in ISO 8601 format (e.g., '2025-04-01').
                                       - time_end (string, required): End time in ISO 8601 format (e.g., '2025-04-03').
                                       - count (integer, optional): Number of data points to return. Defaults to 1.
-                                      - interval (string, optional): Time interval between data points (e.g., 'daily', 'hourly'). Defaults to 'daily'.
+                                      - interval (string, optional): Time interval must be one of: weekly, daily, hourly, 5m, 10m, 15m, 30m, 45m, 1h, 2h, 3h, 4h, 6h, 12h, 24h, 1d, 2d, 3d, 7d, 14d, 15d, 30d
                                       - attributes (array, optional): List of attributes to extract (e.g., \['price', 'market_cap'\]). Allowed values: 'price', 'market_cap', 'volume_24h', 'percent_change_1h', 'percent_change_24h', 'percent_change_7d', 'percent_change_30d', 'total_supply', 'circulating_supply'. Defaults to \['price', 'market_cap'\].
                                       - convert (string, optional): Currency for price conversion (e.g., 'USD'). Defaults to 'USD'.
 
                                       Returns: A formatted string of historical quotes in the format 'timestamp,attribute:value', concatenated for each attribute, timestamp, and cryptocurrency. In case of an error, returns a string in the format 'error:error_message'.""",
 
-                                      "portfolio":"""
-                                      Description: Retrieves details of the user's stock portfolio and cryptocurrency portfolio/profile information.
-                                      Parameters: None
-                                      Returns: A string containing stock portfolio data, including holdings, pending orders, and total portfolio value, as well as cryptocurrency portfolio data, formatted as a text string.
+"portfolio":"""
+              Description: Retrieves details of the user's stock portfolio and cryptocurrency portfolio/profile information.
+              Parameters: None
+              Returns: A string containing stock portfolio data, including holdings, pending orders, and total portfolio value, as well as cryptocurrency portfolio data, formatted as a text string.
                                       """,
 
 
@@ -132,3 +132,14 @@ STATICS = {
                     """
 
 }
+
+CRYPTO_LIST = []
+EXCHANGE_LIST = []
+LAST_REFRESH = 0
+CACHE_DURATION = 24 * 60 * 60  # 24 hours in seconds
+
+COIN_MARKET_CAP_API_BASE_URL = "pro-api.coinmarketcap.com"
+
+INVESTMENT_MARKET_API_BASE_URL = "api-stg-invmkt.agentmarket.ae"
+
+
