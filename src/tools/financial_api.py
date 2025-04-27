@@ -1,13 +1,12 @@
 import http.client
-import os
-import json
-import http
-import logging
+import os,json,http,logging
 from dotenv import load_dotenv
 from tavily import TavilyClient
 from fuzzywuzzy import fuzz
 from src.statics import CRYPTO_LIST, EXCHANGE_LIST, LAST_REFRESH, CACHE_DURATION, COIN_MARKET_CAP_API_BASE_URL ,INVESTMENT_MARKET_API_BASE_URL
-import time
+import time,sys,pandas as pd
+
+
 
 # Load environment variables
 load_dotenv()
@@ -17,6 +16,8 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 tavily_client= None
+historical_quotes_df = pd.DataFrame()
+plot = None
 # Initialize Tavily client
 try:
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
@@ -224,7 +225,6 @@ def portfolio():
     
     return information_set
 
-@handle_request_error
 def portfolio_stocks():
     """
     Get user's stock portfolio information
@@ -244,7 +244,6 @@ def portfolio_stocks():
     data = res.read()
     return json.loads(data.decode("utf-8"))
 
-@handle_request_error
 def portfolio_crypto():
     """
     Get user's cryptocurrency portfolio information
@@ -435,6 +434,7 @@ def get_coinmarketcap_data():
     # Refresh data from API
     logger.info("Refreshing data from CoinMarketCap API")
     CRYPTO_LIST, EXCHANGE_LIST = fetch_coinmarketcap_data()
+    print(f"******X******CRYPTO_LIST: {sys.getsizeof(CRYPTO_LIST)}, EXCHANGE_LIST: {sys.getsizeof(EXCHANGE_LIST)}")
     LAST_REFRESH = time.time()
     return CRYPTO_LIST, EXCHANGE_LIST
 

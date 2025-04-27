@@ -24,7 +24,6 @@ def create_crypto_agent(model_name="gpt-4o-2024-08-06", verbose=True, **kwargs):
     from langchain.agents import initialize_agent, AgentType
     from langchain.memory import ConversationBufferWindowMemory
     from langchain_openai import ChatOpenAI
-    from langchain_core.messages import AIMessage
     
     # Custom memory class that can handle non-string outputs
     #class SafeConversationMemory(ConversationBufferWindowMemory):
@@ -89,7 +88,7 @@ def create_crypto_agent(model_name="gpt-4o-2024-08-06", verbose=True, **kwargs):
     # Set up memory with the safer implementation
     memory = ConversationBufferWindowMemory(
         memory_key="chat_history",
-        k=5,
+        k=10,
         return_messages=True,
     )
     

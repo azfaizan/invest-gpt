@@ -251,7 +251,7 @@ class CreateSubplotsTool(BaseTool):
         fig = create_subplots(**plot_params)
         
         # Return HTML representation of the plot
-        return fig.to_html(full_html=False, include_plotlyjs='cdn')
+        return fig.to_html(full_html=False)
 
 class CryptoHistoricalQuotesTool(BaseTool):
     name: ClassVar[str] = "cryptocurrency_historical_quotes"

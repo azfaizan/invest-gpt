@@ -22,19 +22,32 @@ STATICS = {
 
 
 "cryptocurrency_historical_quotes":"""
-                                      Description: Retrieves historical price quotes for specified cryptocurrencies over a given time period from the CoinMarketCap API, returning selected attributes as a formatted string.
-                                      Limitations: Historical data access is restricted to a specific time range (e.g., 24 months from the current date, with start dates typically required to be newer than a specific threshold, such as April 21, 2023). The 'monthly' interval is not supported; valid intervals include 'daily', 'hourly'.
-                                      Parameters:
+                                **Description:**  
+                                This function retrieves historical price quotes for specified cryptocurrencies over a defined time period using the CoinMarketCap API. It fetches the requested attributes (e.g., price, market cap) and stores the data in a pandas DataFrame. After successful retrieval, the function returns a statistical summary (`DataFrame.describe()`) that includes information about the columns and a statistical overview of the data.
 
-                                      - id (string, required): A comma-separated list of cryptocurrency IDs from CoinMarketCap (e.g., '1,1765' for Bitcoin and EOS).
-                                      - time_start (string, required): Start time in ISO 8601 format (e.g., '2025-04-01').
-                                      - time_end (string, required): End time in ISO 8601 format (e.g., '2025-04-03').
-                                      - count (integer, optional): Number of data points to return. Defaults to 1.
-                                      - interval (string, optional): Time interval must be one of: weekly, daily, hourly, 5m, 10m, 15m, 30m, 45m, 1h, 2h, 3h, 4h, 6h, 12h, 24h, 1d, 2d, 3d, 7d, 14d, 15d, 30d
-                                      - attributes (array, optional): List of attributes to extract (e.g., \['price', 'market_cap'\]). Allowed values: 'price', 'market_cap', 'volume_24h', 'percent_change_1h', 'percent_change_24h', 'percent_change_7d', 'percent_change_30d', 'total_supply', 'circulating_supply'. Defaults to \['price', 'market_cap'\].
-                                      - convert (string, optional): Currency for price conversion (e.g., 'USD'). Defaults to 'USD'.
+                                **Functionality:**  
+                                - Fetches historical cryptocurrency data for specified coins and time ranges.  
+                                - Supports customizable intervals and attribute selection.  
+                                - Saves the retrieved data into a structured pandas DataFrame.  
+                                - Returns a summary of the dataset using `DataFrame.describe()`, which includes count, mean, standard deviation, min, max, and percentiles of numeric columns.
 
-                                      Returns: A formatted string of historical quotes in the format 'timestamp,attribute:value', concatenated for each attribute, timestamp, and cryptocurrency. In case of an error, returns a string in the format 'error:error_message'.""",
+                                **Limitations:**  
+                                - Access to historical data is limited to a specific range (typically within the last 24 months).  
+                                - The `monthly` interval is not supported. Valid intervals include: 'daily', 'hourly', '5m', '10m', '15m', '30m', '45m', '1h', '2h', '3h', '4h', '6h', '12h', '24h', '1d', '2d', '3d', '7d', '14d', '15d', '30d'.  
+                                - The start date must be after a specific threshold (e.g., April 21, 2023).
+
+                                **Parameters:**  
+                                - **id** (string, required): Comma-separated list of CoinMarketCap cryptocurrency IDs (e.g., `'1,1765'` for Bitcoin and EOS).  
+                                - **time_start** (string, required): Start time in ISO 8601 format (e.g., `'2025-04-01'`).  
+                                - **time_end** (string, required): End time in ISO 8601 format (e.g., `'2025-04-03'`).  
+                                - **count** (integer, optional): Number of data points to return. Default is 1.  
+                                - **interval** (string, optional): Time interval for data granularity.  
+                                - **attributes** (array, optional): List of attributes to retrieve (e.g., `['price', 'market_cap']`). Allowed values include: `'price'`, `'market_cap'`, `'volume_24h'`, `'percent_change_1h'`, `'percent_change_24h'`, `'percent_change_7d'`, `'percent_change_30d'`, `'total_supply'`, `'circulating_supply'`. Default is `['price', 'market_cap']`.  
+                                - **convert** (string, optional): Currency for conversion (e.g., `'USD'`). Default is `'USD'`.
+
+                                **Returns:**  
+                                A pandas `DataFrame.describe()` output providing statistical insights into the requested historical data. In case of an error during the API call or data processing, a string in the format `'error:error_message'` is returned.
+""",
 
 "portfolio":"""
               Description: Retrieves details of the user's stock portfolio and cryptocurrency portfolio/profile information.
@@ -88,6 +101,22 @@ STATICS = {
                   - nbinsx (integer, optional): Number of bins for histogram. Defaults to 30.
 
                   Returns: A visualization (pie, bar, scatter, line, or histogram) based on the provided data and customization options, formatted as a text string describing the chart.
+                  Example:"function_call": {{{{
+                                      "name": "create_plot",
+                                      "arguments": {{{{
+                                        "data": [
+                                          {{{{"name": "Transaction", "value": 25, "category": "Amount"}}}},
+                                          {{{{"name": "Transaction", "value": 35, "category": "Amount"}}}},
+                                          {{{{"name": "Transaction", "value": 45, "category": "Amount"}}}}
+                                        ],
+                                        "plot_type": "histogram",
+                                        "title": "Distribution of Transaction Amounts",
+                                        "x_column": "value",
+                                        "nbinsx": 20,
+                                        "show_legend": false
+                                      }}}}
+                                    }}}}
+                  
                   """,
 
 "create_subplots":"""
@@ -109,6 +138,33 @@ STATICS = {
                     - show_legend (boolean, optional): Whether to show the legend. Defaults to true.
 
                     Returns: A single figure containing multiple visualizations (pie, bar, scatter, line, or histogram) arranged in a grid for comparison or multi-view analysis, formatted as a text string describing the figure.
+                    
+                    Example:
+                      "function_call": {{{{
+                            "name": "create_subplots",
+                            "arguments": {{{{
+                              "data": {{{{
+                                "1": {{{{
+                                  "Invested": {{{{
+                                    "x": ["Stocks", "Crypto"],
+                                    "y": [5960, 1073.49],
+                                    "text": ["$5,960.00", "$1,073.49"]
+                                  }}}}
+                                }}}},
+                                "2": {{{{
+                                  "Profit/Loss": {{{{
+                                    "x": ["Stocks", "Crypto"],
+                                    "y": [-1197, -62.73],
+                                    "text": ["-$1,197.00", "-$62.73"]
+                                  }}}}
+                                }}}}
+                              }}}},
+                              "plot_types": ["bar", "bar"],
+                              "subplot_titles": ["Investment Amount", "Profit/Loss"],
+                              "title": "Portfolio Analysis: Investment vs. Performance",
+                              "column_widths": [0.6, 0.4]
+                            }}}}
+                          }}}}
                     """,
 
 "get_current_date":"""

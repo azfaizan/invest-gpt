@@ -1,7 +1,9 @@
 import plotly.graph_objects as go
 import plotly.colors as pc
+import plotly.express as px
 from typing import List, Dict, Any, Optional, Union
 from plotly.subplots import make_subplots
+import pandas as pd
 
 def create_plot(
     data: List[Dict[str, Any]],
@@ -637,4 +639,4 @@ def create_subplots(
         if 'yaxis_title' in traces:
             fig.update_yaxes(title_text=traces['yaxis_title'], row=grid_row, col=grid_col)
     
-    return fig 
+    return fig
