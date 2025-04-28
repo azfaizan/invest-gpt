@@ -7,10 +7,10 @@ from src.tools import (
     CryptoPriceStatsTool,
     CryptoHistoricalQuotesTool,
     PortfolioTool,
-    CreatePlotTool,
-    CreateSubplotsTool,
     GetCurrentDateTool,
-    CryptoSearchTool
+    CryptoSearchTool,
+    ManipulateDatasetTool,
+    PlottingWithGeneratedCodeTool
 )
 from src.callbacks.llm_logger import LLMLogger
 
@@ -43,9 +43,8 @@ def create_crypto_agent(model_name="gpt-4o-2024-08-06", verbose=True, **kwargs):
     # Initialize LLM with callbacks
     llm = ChatOpenAI(
         model_name=model_name,
-        temperature=0.2,
-        streaming=True,
-        callbacks=[llm_logger]  # Add our logger to the callbacks
+        callbacks=[llm_logger],  # Add our logger to the callbacks
+        **kwargs
     )
 
     # Define a function that will handle API failures gracefully
@@ -79,10 +78,10 @@ def create_crypto_agent(model_name="gpt-4o-2024-08-06", verbose=True, **kwargs):
         # Use the updated CryptoHistoricalQuotesTool which now handles structured inputs correctly
         CryptoHistoricalQuotesTool(),
         PortfolioTool(),
-        CreatePlotTool(),
-        CreateSubplotsTool(),
         GetCurrentDateTool(),
-        CryptoSearchTool()
+        CryptoSearchTool(),
+        ManipulateDatasetTool(),
+        PlottingWithGeneratedCodeTool()
     ]
     
     # Set up memory with the safer implementation

@@ -4,10 +4,10 @@ from src.tools.langchain_tools import (
     CryptoPriceStatsTool,
     CryptoHistoricalQuotesTool,
     PortfolioTool,
-    CreatePlotTool,
-    CreateSubplotsTool,
     GetCurrentDateTool,
-    CryptoSearchTool
+    CryptoSearchTool,
+    ManipulateDatasetTool,
+    PlottingWithGeneratedCodeTool
 )
 __all__ = [
     "WebSearchTool",
@@ -15,8 +15,8 @@ __all__ = [
     "CryptoPriceStatsTool",
     "CryptoHistoricalQuotesTool",
     "PortfolioTool",
-    "CreatePlotTool",
-    "CreateSubplotsTool",
     "GetCurrentDateTool",
-    "CryptoSearchTool"
+    "CryptoSearchTool",
+    "ManipulateDatasetTool",
+    "PlottingWithGeneratedCodeTool"
 ]

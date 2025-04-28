@@ -1,16 +1,16 @@
 from langchain.tools import BaseTool
 from typing import Dict, Any, List, Optional, Type, ClassVar
 from pydantic import BaseModel, Field
-import json
 from src.tools.financial_api import (
     web_search,
     cryptocurrency_meta_info,
     cryptocurrency_price_performance_stats,
     cryptocurrency_historical_quotes,
     portfolio,
-    search_coins
+    search_coins,
+    manipulate_dataset
 )
-from src.visualization.plot_utils import create_plot, create_subplots
+from src.tools.financial_api import plotting_with_generated_code
 from src.statics import STATICS
 from datetime import datetime
 
@@ -26,37 +26,18 @@ class CryptoMetaInfoInput(BaseModel):
 class CryptoPriceStatsInput(BaseModel):
     id: str = Field(..., description="Cryptocurrency ID from CoinMarketCap")
 
-class CreatePlotInput(BaseModel):
-    data: List[Dict[str, Any]] = Field(..., description="Input data as list of dictionaries")
-    plot_type: str = Field("pie", description="Type of plot to create ('pie', 'bar', 'scatter', 'line', 'histogram')")
-    title: str = Field("Data Visualization", description="Title of the plot")
-    x_column: Optional[str] = Field(None, description="Column name for x-axis (for bar, scatter, line, histogram)")
-    y_column: Optional[str] = Field(None, description="Column name for y-axis (for bar, scatter, line)")
-    color_column: Optional[str] = Field(None, description="Column name for color grouping")
-    size_column: Optional[str] = Field(None, description="Column name for marker size (for scatter)")
-    text_column: Optional[str] = Field(None, description="Column name for hover text")
-    width: int = Field(800, description="Width of the plot in pixels")
-    height: int = Field(600, description="Height of the plot in pixels")
-
-class CreateSubplotsInput(BaseModel):
-    data: Dict[int, Dict[str, Dict[str, Any]]] = Field(..., 
-        description="Dictionary containing data for plots {subplot_idx: {trace_name: {x: [], y: [], text: []}}}")
-    plot_types: List[str] = Field(..., 
-        description="List of plot types ('bar', 'pie', 'scatter', etc.) for each subplot")
-    rows: int = Field(1, description="Number of rows")
-    cols: int = Field(2, description="Number of columns")
-    subplot_titles: Optional[List[str]] = Field(None, description="Titles for each subplot")
-    title: str = Field("Dynamic Subplots", description="Main figure title")
-    height: int = Field(600, description="Figure height")
-    width: Optional[int] = Field(None, description="Figure width")
-    barmode: str = Field('group', description="'group', 'stack', or 'relative' for bar plots")
-
 class CryptoHistoricalQuotesInput(BaseModel):
     id: str = Field(..., description="Comma-separated list of cryptocurrency IDs from CoinMarketCap (e.g., '1,1027' for Bitcoin and Ethereum)")
     time_start: str = Field(..., description="Start time in ISO 8601 format (e.g., '2024-04-01')")
     time_end: str = Field(..., description="End time in ISO 8601 format (e.g., '2025-04-01')")
     count: int = Field(1, description="Number of data points to return")
     interval: str = Field("daily", description="Time interval between data points ('daily', 'hourly', etc)")
+
+class ManipulateDatasetInput(BaseModel):
+    code_string: str = Field(..., description="Python code to manipulate the historical_quotes_df DataFrame")
+
+class PlottingWithGeneratedCodeInput(BaseModel):
+    code_string: str = Field(..., description="Plotly Python code to create a visualization")
 
 class WebSearchTool(BaseTool):
     name: ClassVar[str] = "web_search"
@@ -120,138 +101,6 @@ class PortfolioTool(BaseTool):
     def _run(self, _: str = "") -> dict:
         """Execute with no specific input required"""
         return portfolio()
-
-class CreatePlotTool(BaseTool):
-    name: ClassVar[str] = "create_plot"
-    description: ClassVar[str] = STATICS["create_plot"] 
-    
-    def _run(
-        self, 
-        input_str: str = "", 
-        data: List[Dict[str, Any]] = None,
-        plot_type: str = "pie",
-        title: str = "Data Visualization",
-        x_column: str = None,
-        y_column: str = None,
-        color_column: str = None,
-        size_column: str = None,
-        text_column: str = None,
-        width: int = 800,
-        height: int = 600,
-        **kwargs
-    ) -> str:
-        """
-        Execute with either a JSON string input or direct parameters
-        
-        Args:
-            input_str: A JSON string input
-            data: List of data points as dictionaries
-            plot_type: Type of plot to create
-            title: Title of the plot
-            x_column: Column name for x-axis
-            y_column: Column name for y-axis
-            color_column: Column name for color grouping
-            size_column: Column name for marker size
-            text_column: Column name for hover text
-            width: Width of the plot in pixels
-            height: Height of the plot in pixels
-        """
-        print(f"DEBUG - CreatePlotTool received input: '{input_str}'")
-        
-        # Default parameters
-        params = {
-            "data": data or [],
-            "plot_type": plot_type,
-            "title": title,
-            "x_column": x_column,
-            "y_column": y_column,
-            "color_column": color_column,
-            "size_column": size_column,
-            "text_column": text_column,
-            "width": width,
-            "height": height
-        }
-        
-        # Update with any additional kwargs
-        params.update(kwargs)
-        
-        if not params["data"]:
-            error_message = "No data provided for visualization."
-            print(f"DEBUG - Error: {error_message}")
-            return f"Error: {error_message}"
-        
-        print(f"DEBUG - Creating plot with parameters: {params}")
-        
-        # Extract all parameters for create_plot function
-        plot_params = {k: v for k, v in params.items()}
-        
-        # Create the plot
-        fig = create_plot(**plot_params)
-        
-        # Return HTML representation of the plot
-        return fig.to_html(full_html=False, include_plotlyjs='cdn')
-
-class CreateSubplotsTool(BaseTool):
-    name: ClassVar[str] = "create_subplots"
-    description: ClassVar[str] = STATICS["create_subplots"]
-    
-    def _run(
-        self,
-        input_str: str = "",
-        data: Dict[int, Dict[str, Dict[str, Any]]] = None,
-        plot_types: List[str] = None,
-        rows: int = 1,
-        cols: int = 2,
-        subplot_titles: List[str] = None,
-        title: str = "Dynamic Subplots",
-        height: int = 600,
-        width: int = None,
-        barmode: str = "group",
-        **kwargs
-    ) -> str:
-        """
-        Execute with either a JSON string input or direct parameters
-        
-        Args:
-            input_str: A JSON string input
-            data: Dictionary containing data for plots
-            plot_types: List of plot types for each subplot
-            rows: Number of rows in subplot grid
-            cols: Number of columns in subplot grid
-            subplot_titles: Titles for each subplot
-            title: Main figure title
-            height: Figure height in pixels
-            width: Figure width in pixels
-            barmode: Mode for bar plots ('group', 'stack', 'relative')
-        """
-        print(f"DEBUG - CreateSubplotsTool received input: '{input_str}'")
-        
-        # Default parameters
-        params = {
-            "data": data or {},
-            "plot_types": plot_types or [],
-            "rows": rows,
-            "cols": cols,
-            "subplot_titles": subplot_titles,
-            "title": title,
-            "height": height,
-            "width": width,
-            "barmode": barmode
-        }
-        
-        # Update with any additional kwargs
-        params.update(kwargs)
-        
-        print(f"DEBUG - Creating subplots with parameters: {params}")
-        
-        # Extract all parameters for create_subplots function
-        plot_params = {k: v for k, v in params.items()}
-        
-        # Create the subplots
-        fig = create_subplots(**plot_params)
-        
-        # Return HTML representation of the plot
-        return fig.to_html(full_html=False)
 
 class CryptoHistoricalQuotesTool(BaseTool):
     name: ClassVar[str] = "cryptocurrency_historical_quotes"
@@ -346,4 +195,32 @@ class CryptoSearchTool(BaseTool):
             
         except Exception as e:
             return f"Error searching for assets: {str(e)}"
+
+class ManipulateDatasetTool(BaseTool):
+    name: ClassVar[str] = "manipulate_dataset"
+    description: ClassVar[str] = STATICS["manipulate_dataset"]
+    
+    def _run(self, code_string: str) -> str:
+        """
+        Execute Python code to manipulate the historical_quotes_df DataFrame
+        
+        Args:
+            code_string: Python code to execute on the historical_quotes_df DataFrame
+        """
+        print(f"DEBUG - ManipulateDatasetTool received code: '{code_string[:100]}...'")
+        return manipulate_dataset(code_string)
+
+class PlottingWithGeneratedCodeTool(BaseTool):
+    name: ClassVar[str] = "plotting_with_generated_code"
+    description: ClassVar[str] = STATICS["plotting_with_generated_code"]
+    
+    def _run(self, code_string: str) -> str:
+        """
+        Execute Plotly code to create a visualization
+        
+        Args:
+            code_string: Plotly Python code to create a visualization
+        """
+        print(f"DEBUG - PlottingWithGeneratedCodeTool received code: '{code_string[:100]}...'")
+        return plotting_with_generated_code(code_string)
             

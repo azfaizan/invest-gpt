@@ -3,9 +3,16 @@ import os,json,http,logging
 from dotenv import load_dotenv
 from tavily import TavilyClient
 from fuzzywuzzy import fuzz
-from src.statics import CRYPTO_LIST, EXCHANGE_LIST, LAST_REFRESH, CACHE_DURATION, COIN_MARKET_CAP_API_BASE_URL ,INVESTMENT_MARKET_API_BASE_URL
-import time,sys,pandas as pd
+from src.statics import CRYPTO_LIST, EXCHANGE_LIST, LAST_REFRESH, CACHE_DURATION, COIN_MARKET_CAP_API_BASE_URL ,INVESTMENT_MARKET_API_BASE_URL,historical_quotes_df
+import time,sys,pandas as pd , numpy as np
+import plotly.graph_objects as go
+import plotly.colors as pc
+from plotly.subplots import make_subplots
+import pandas as pd
+import re
 
+
+plot, historical_quotes_df = None, None
 
 
 # Load environment variables
@@ -16,8 +23,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 tavily_client= None
-historical_quotes_df = pd.DataFrame()
-plot = None
+
 # Initialize Tavily client
 try:
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
@@ -200,30 +206,82 @@ def cryptocurrency_price_performance_stats(id):
 @handle_request_error
 def portfolio():
     """
-    Get user's portfolio information for both stocks and crypto
+    Get user's portfolio information for both stocks and crypto,
+    creates a DataFrame and returns its description.
     
     Returns:
-        dict: Portfolio information for stocks and crypto
+        str: String representation of the portfolio DataFrame's describe() statistics
     """
-    information_set = {"stocks": None, "crypto": None}
+    global historical_quotes_df
     
     # Get stocks data
     try:
         stocks_data = portfolio_stocks()
-        information_set["stocks"] = stocks_data
+        stocks_info = stocks_data.get('data', {}).get('holdings', [])
     except Exception as e:
-        logger.error(f"Error fetching portfolio stocks: {str(e)}")
-        information_set["stocks"] = {"error": str(e)}
+        stocks_info = []
     
     # Get crypto data
     try:
         crypto_data = portfolio_crypto()
-        information_set["crypto"] = crypto_data
+        crypto_info = crypto_data.get('data', {}).get('holdings', [])
     except Exception as e:
-        logger.error(f"Error fetching portfolio crypto: {str(e)}")
-        information_set["crypto"] = {"error": str(e)}
+        crypto_info = []
     
-    return information_set
+    # Prepare data for DataFrame
+    portfolio_records = []
+    
+    # Process stocks data
+    for stock in stocks_info:
+        record = {
+            'asset_type': 'stock',
+            'id': stock.get('id', ''),
+            'symbol': stock.get('symbol', ''),
+            'name': stock.get('name', ''),
+            'quantity': float(stock.get('qty', 0)),
+            'average_cost': float(stock.get('averagePrice', 0)),
+            'current_price': float(stock.get('price', 0)),
+            'value': float(stock.get('value', 0)),
+            'invested': float(stock.get('invested', 0)),
+            'current_value': float(stock.get('currentValue', 0)),
+            'profit_loss': float(stock.get('pl', 0)),
+            'profit_loss_percent': float(stock.get('plpc', 0)),
+            'holding_percent_change': float(stock.get('holdingPercentChange', 0)),
+            'logo': stock.get('logo', '')
+        }
+        portfolio_records.append(record)
+    
+    # Process crypto data
+    for crypto in crypto_info:
+        record = {
+            'asset_type': 'crypto',
+            'id': crypto.get('id', ''),
+            'symbol': crypto.get('symbol', ''),
+            'name': crypto.get('name', ''),
+            'quantity': float(crypto.get('qty', 0)),
+            'average_cost': float(crypto.get('averagePrice', 0)),
+            'current_price': float(crypto.get('price', 0)),
+            'value': float(crypto.get('value', 0)),
+            'invested': float(crypto.get('invested', 0)),
+            'current_value': float(crypto.get('currentValue', 0)),
+            'profit_loss': float(crypto.get('pl', 0)),
+            'profit_loss_percent': float(crypto.get('plpc', 0)),
+            'holding_percent_change': float(crypto.get('holdingPercentChange', 0)),
+            'logo': crypto.get('logo', '')
+        }
+        portfolio_records.append(record)
+    
+    # Create DataFrame
+    if not portfolio_records:
+        return "{error:No portfolio data available}"
+    
+    portfolio_df = pd.DataFrame(portfolio_records)
+    
+    # Store in global variable for potential further manipulation
+    historical_quotes_df = portfolio_df
+    
+    # Return describe() as string
+    return portfolio_df.describe(include='all').to_string()
 
 def portfolio_stocks():
     """
@@ -267,32 +325,31 @@ def portfolio_crypto():
 def cryptocurrency_historical_quotes(id_list, time_start, time_end, count=1, interval="daily", attributes=["price", "market_cap"], convert="USD"):
     """
     Get historical price quotes for one or more cryptocurrencies over a specified time period,
-    storing data in a DataFrame and returning summarized statistics of specified attributes.
+    storing data in a global DataFrame and returning summarized statistics as a string.
     
     Args:
         id_list (str): Comma-separated list of cryptocurrency IDs from CoinMarketCap
         time_start (str): Start time in ISO 8601 format (e.g., '2024-04-01')
-        time_end (str): End time in ISO 8601 format (e.g., '2025-04-01')
+        time_end (str): End time in ISO 8601 format (e.g., '2024-04-01')
         count (int, optional): Number of data points to return. Defaults to 1.
         interval (str, optional): Time interval between data points ('daily', 'hourly', etc). Defaults to 'daily'.
         attributes (list, optional): List of attributes to extract (e.g., ['price', 'market_cap']). Defaults to ['price', 'market_cap'].
         convert (str, optional): Currency to convert quotes to. Defaults to 'USD'.
         
     Returns:
-        dict: Summary statistics of historical data and plotting information
+        str: String representation of the DataFrame's describe() statistics
     """
+    global historical_quotes_df
     print(f"DEBUG - cryptocurrency_historical_quotes called with: id_list={id_list}, time_start={time_start}, time_end={time_end}, count={count}, interval={interval}, attributes={attributes}, convert={convert}")
     
     if not id_list:
-        logger.error("No cryptocurrency IDs provided for historical quotes")
         return "{error:No cryptocurrency IDs provided}"
         
     CMC_API_KEY = os.getenv("CMC_PRO_API_KEY")
     if not CMC_API_KEY:
-        logger.error("CMC API key not found")
         return "{error:CMC API key not found}"
     
-    conn = http.client.HTTPSConnection(COIN_MARKET_CAP_API_BASE_URL)
+    conn = http.client.HTTPSConnection("pro-api.coinmarketcap.com")
     headers = {
         'X-CMC_PRO_API_KEY': CMC_API_KEY,
         'Accept': '*/*'
@@ -307,16 +364,14 @@ def cryptocurrency_historical_quotes(id_list, time_start, time_end, count=1, int
         res = conn.getresponse()
         data = res.read()
         raw_response = data.decode("utf-8")
-        print(f"DEBUG - API raw response: {raw_response[:200]}...")
         
         result = json.loads(raw_response)
         
         if "data" not in result:
-            error_message = result.get("status", {}).get("error_message", "Unknown error")
-            logger.error(f"API error in cryptocurrency_historical_quotes: {error_message}")
-            return f"{{error:{error_message}}}"
+            return f"Errot"
         
-        output = []
+        # Initialize lists to store DataFrame data
+        records = []
         data = result["data"]
         
         # Handle response1 (multiple IDs) or response2 (single ID)
@@ -325,29 +380,88 @@ def cryptocurrency_historical_quotes(id_list, time_start, time_end, count=1, int
                 for crypto_data in crypto_info.get("quotes", []):
                     timestamp = crypto_data["timestamp"]
                     currency_data = crypto_data["quote"].get(convert, {})
+                    record = {"timestamp": timestamp, "crypto_id": crypto_id}
                     for attr in attributes:
                         if attr in currency_data:
-                            output.append(f"{{{timestamp},{crypto_id},{attr}:{currency_data[attr]}}}")
+                            record[attr] = currency_data[attr]
+                    records.append(record)
         else:  # response2: {"quotes": [...]}
-            # Assume single ID from id_list (first ID)
             single_id = id_list.split(",")[0] if "," in id_list else id_list
             for crypto_data in data.get("quotes", []):
                 timestamp = crypto_data["timestamp"]
                 currency_data = crypto_data["quote"].get(convert, {})
+                record = {"timestamp": timestamp, "crypto_id": single_id}
                 for attr in attributes:
                     if attr in currency_data:
-                        output.append(f"{{{timestamp},{single_id},{attr}:{currency_data[attr]}}}")
+                        record[attr] = currency_data[attr]
+                records.append(record)
         
-        return "".join(output) if output else "{error:No valid data found}"
+        if not records:
+            logger.error("No valid data found")
+            return "{error:No valid data found}"
+        
+        # Create DataFrame and assign to global variable
+        historical_quotes_df = pd.DataFrame(records)
+        
+        # Convert timestamp to datetime if present
+        if "timestamp" in historical_quotes_df.columns:
+            historical_quotes_df["timestamp"] = pd.to_datetime(historical_quotes_df["timestamp"])
+        
+        # Return describe() as string
+        return historical_quotes_df.describe(include='all').to_string()
         
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse API response: {str(e)}")
+        #logger.error(f"Failed to parse API response: {str(e)}")
         return f"{{error:Failed to parse API response: {str(e)}}}"
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        #logger.error(f"Unexpected error: {str(e)}")
         return f"{{error:Unexpected error: {str(e)}}}"
     finally:
         conn.close()
+
+def manipulate_dataset(code_string):
+    """
+    Execute LLM-provided Python code to manipulate the global historical_quotes_df DataFrame
+    and return a summary of the modified DataFrame.
+    
+    Args:
+        code_string (str): Python code to execute, manipulating historical_quotes_df.
+        
+    Returns:
+        str: String representation of the custom describe statistics of the modified DataFrame,
+             or an error message if execution fails.
+    """
+    global historical_quotes_df    
+    if historical_quotes_df is None:
+        return "{error:No DataFrame available}"
+    
+    if not code_string.strip():
+        return "{error:No code provided}"
+    
+    # Define a restricted namespace for safe execution
+    namespace = {
+        'historical_quotes_df': historical_quotes_df,
+        'pd': pd,
+        'np': np
+    }
+    
+    try:
+        # Execute the code string
+        exec(code_string, namespace)
+        
+        # Update global DataFrame if modified in namespace
+        if 'historical_quotes_df' in namespace:
+            historical_quotes_df = namespace['historical_quotes_df']
+        
+        # Return custom describe of the modified DataFrame
+        return historical_quotes_df.describe(include='all').to_string()
+        
+    except SyntaxError as e:
+        logger.error(f"Syntax error in provided code: {str(e)}")
+        return f"{{error:Syntax error: {str(e)}}}"
+    except Exception as e:
+        logger.error(f"Error executing code: {str(e)}")
+        return f"{{error:Execution error: {str(e)}}}"
 
 def fetch_coinmarketcap_data():
     """
@@ -480,6 +594,68 @@ def search_assets(query, threshold=70, limit=10):
     exchange_matches.sort(key=lambda x: x[1], reverse=True)
     
     return crypto_matches[:limit], exchange_matches[:limit]
+
+def plotting_with_generated_code(code_string):
+    """
+    Execute user-provided or LLM-generated Plotly code to create a plot from the global historical_quotes_df DataFrame,
+    storing the plot's HTML in the global 'plot' variable.
+    
+    Args:
+        code_string (str): Plotly code to execute, creating a figure named 'fig'.
+        
+    Returns:
+        str: "plot is saved in cache" on success, or an error message if execution fails.
+    """
+    global historical_quotes_df, plot
+    #logger = logging.getLogger(__name__)
+    print(f"DEBUG - plotting_with_generated_code called with code: {code_string}")
+    print(f"DEBUG - historical_quotes_df: {historical_quotes_df}")
+    if historical_quotes_df is None:
+        #logger.error("No DataFrame available. Run cryptocurrency_historical_quotes first.")
+        return "{error:No DataFrame available}"
+    
+    if not code_string.strip():
+        #logger.error("No code provided for plotting")
+        return "{error:No code provided}"
+    
+    # Clean the code - remove any fig.show() or similar display calls
+    # This is a safety measure in case the model still adds them despite the rules
+    cleaned_code = re.sub(r'fig\.show\(\s*\)', '', code_string)
+    cleaned_code = re.sub(r'fig\.write_html\(.*?\)', '', cleaned_code)
+    cleaned_code = re.sub(r'fig\.write_image\(.*?\)', '', cleaned_code)
+    cleaned_code = re.sub(r'display\(.*?fig.*?\)', '', cleaned_code)
+    
+    # Check if code was modified
+    if cleaned_code != code_string:
+        print("WARNING: Removed display/save calls from the code")
+    
+    # Define a restricted namespace for safe execution
+    namespace = {
+        'historical_quotes_df': historical_quotes_df,
+        'pd': pd,
+        'go': go,
+        'pc': pc,
+        'make_subplots': make_subplots
+    }
+    
+    try:
+        # Execute the cleaned code string
+        exec(cleaned_code, namespace)
+        
+        # Check if 'fig' was created
+        if 'fig' not in namespace:
+        #    logger.error("No Plotly figure named 'fig' was created")
+            return "{error:No Plotly figure named 'fig' was created}"
+        plot = namespace['fig'].to_html(full_html=False)
+        
+        return "plot is saved in cache"
+        
+    except SyntaxError as e:
+        #logger.error(f"Syntax error in provided code: {str(e)}")
+        return f"{{error:Syntax error: {str(e)}}}"
+    except Exception as e:
+        #logger.error(f"Error executing Plotly code: {str(e)}")
+        return f"{{error:Execution error: {str(e)}}}"
 
 @handle_request_error
 def search_coins(query, threshold=70, limit=10):
