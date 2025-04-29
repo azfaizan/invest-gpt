@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    secrets.doppler.com/reload: 'true'
+  name: invest-gpt-stage
+  namespace: myalfred
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2 # Keep only 2 old ReplicaSets
+  selector:
+    matchLabels:
+      app: invest-gpt
+      environment: stage
+  template:
+    metadata:
+      labels:
+        app: invest-gpt
+        environment: stage
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: invest-gpt-stage
+          image: 116981791371.dkr.ecr.me-central-1.amazonaws.com/invest-gpt-stage:latest
+          imagePullPolicy: Always
+          envFrom:
+            - secretRef:
+                name: invest-gpt-stg-eks-doppler-token
+          ports:
+            - containerPort: 8001
+              protocol: TCP
+          #livenessProbe:
+          #  httpGet:
+          #    path: /invest-gpt/health # Health check path relative to the ingress
+          #    port: 8001 # Match container port
+          #  initialDelaySeconds: 30 # Time before the first probe
+          #  periodSeconds: 15 # Frequency of probes
+          #  timeoutSeconds: 3 # Timeout for each probe
+          #  failureThreshold: 3 # Fail after 3 consecutive failures
+          #  successThreshold: 1 # Succeed after 1 successful probe
+          #readinessProbe:
+          #  httpGet:
+          #    path: /invest-gpt/health # Health check path relative to the ingress
+          #    port: 8001 # Match container port
+          #  initialDelaySeconds: 20 # Time before the first probe
+          #  periodSeconds: 5 # Frequency of probes
+          #  timeoutSeconds: 2 # Timeout for each probe
+          #  failureThreshold: 3 # Fail after 3 consecutive failures
+          #  successThreshold: 1 # Succeed after 1 successful probe
+          #lifecycle:
+          #  preStop:
+          #    exec:
+          #      command: ["/bin/sh", "-c", "sleep 10"]
+          resources:
+            requests:
+              cpu: 128m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
+      restartPolicy: Always

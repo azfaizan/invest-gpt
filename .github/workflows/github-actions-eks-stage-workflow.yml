@@ -1,0 +1,203 @@
+name: Build & push to AWS ECR and Deploy to AWS EKS
+
+on:
+  push:
+    branches: [ develop ]
+  #pull_request:
+  #  branches:
+  #    - feature/k8s
+
+env:
+  ECR_REPOSITORY: invest-gpt-stage
+  ECR_REGISTRY: ${{ secrets.INVMRKT_SANDBOX_AWS_ACCOUNT_ID }}.dkr.ecr.me-central-1.amazonaws.com
+  DEPLOYMENT_NAME: invest-gpt-stage
+  NAMESPACE: invest-gpt
+  PROJECT: invest-gpt
+  REPO_NAME: invest-gpt
+  ENVIRONMENT: stage
+  EKS_CLUSTER_NAME: eks-cluster-invest-dev
+  #THREAD_KEY: "deploy-${{ github.run_id }}"
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Start Notification
+        if: always() # Always runs at the start
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+          -d '{
+                "text": "🚀 Pipeline started\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\nAuthor: ${{ github.event.head_commit.author.name }}\nMessage: ${{ github.event.head_commit.message }}\nURL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }' \
+          "${{ secrets.INVMRKT_SANDBOX_DEPLOYMENT_WEBHOOK_URL }}"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+  build-push:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+
+    #outputs:
+    #  image_tag: ${{ steps.tag.outputs.image_tag }}
+    #  build_number: ${{ steps.tag.outputs.build_number }}
+
+    permissions:
+      id-token: write
+      contents: write
+
+    steps:
+      - name: Build Start Notification
+        if: always()
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+          -d '{
+                "text": "🏗️ Build job started\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\nAuthor: ${{ github.event.head_commit.author.name }}\nMessage: ${{ github.event.head_commit.message }}\nURL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }' \
+          "${{ secrets.INVMRKT_SANDBOX_DEPLOYMENT_WEBHOOK_URL }}"
+
+      - name: Set short git commit SHA
+        id: commit
+        uses: prompt/actions-commit-hash@v2
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: "${{ secrets.INVMRKT_SANDBOX_AWS_ROLE_ARN }}"
+          role-session-name: "${{secrets.INVMRKT_SANDBOX_AWS_ROLE_NAME}}"
+          aws-region: me-central-1
+
+      #- name: Extract branch name
+      #  run: |
+      #    BRANCH_NAME=$(echo ${{ github.ref }} | sed 's/refs\/heads\///')
+      #    echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+      
+      #- name: Generate Build Number and Image Tag
+      #  id: tag
+      #  run: |
+      #    SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+      #    BUILD_NUMBER=$(date +%s)
+      #    echo "image_tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
+      #    echo "build_number=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+
+      - name: Build and push images to Amazon ECR
+        id: build
+        run: |
+        
+            echo "Building Docker image"
+            docker build --build-arg INVESTGPT_TOKEN=${{secrets.INVESTGPT_DOPPLER_TOKEN_STAGE_EKS}} -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+
+            echo "Pushing Docker image for service: $service"
+            docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Build Success Notification
+        if: success()
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+          -d '{
+                "text": "✅ Build completed successfully\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\nAuthor: ${{ github.event.head_commit.author.name }}\nMessage: ${{ github.event.head_commit.message }}\nURL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }' \
+          "${{ secrets.INVMRKT_SANDBOX_DEPLOYMENT_WEBHOOK_URL }}"
+
+      - name: Build Failure Notification
+        if: failure()
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+          -d '{
+                "text": "❌ Build failed\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\nAuthor: ${{ github.event.head_commit.author.name }}\nMessage: ${{ github.event.head_commit.message }}\nURL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }' \
+          "${{ secrets.INVMRKT_SANDBOX_DEPLOYMENT_WEBHOOK_URL }}"
+
+  deploy:
+    needs: [detect-changes, build-push]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Deployment Start Notification
+        if: always()
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+          -d '{
+                "text": "🚀 Deployment job started\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\nAuthor: ${{ github.event.head_commit.author.name }}\nMessage: ${{ github.event.head_commit.message }}\nURL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }' \
+          "${{ secrets.INVMRKT_SANDBOX_DEPLOYMENT_WEBHOOK_URL }}"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: "${{ secrets.INVMRKT_SANDBOX_AWS_ROLE_ARN }}"
+          role-session-name: "${{secrets.INVMRKT_SANDBOX_AWS_ROLE_NAME}}"
+          aws-region: me-central-1
+# Installation Required Packages
+      - name: Install AWS CLI
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install --update
+          aws --version    
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/v1.31.1/bin/linux/amd64/kubectl"
+          chmod +x ./kubectl
+          sudo mv ./kubectl /usr/local/bin/kubectl
+          kubectl version --client 
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region me-central-1
+    # Verify cluster access
+      - name: Verify connection
+        run: kubectl cluster-info
+           kubectl get svc
+      - name: Deploy to Kubernetes
+        run: |
+          # Run any Kubernetes deployment commands here, with environment variables loaded from Doppler          
+          kubectl apply -f k8s/$ENVIRONMENT/ --namespace=$NAMESPACE
+          kubectl rollout restart deployment $DEPLOYMENT_NAME  --namespace=$NAMESPACE
+      
+      - name: Deployment Success Notification
+        if: success()
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+          -d '{
+                "text": "✅ Deployment completed successfully\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\nAuthor: ${{ github.event.head_commit.author.name }}\nMessage: ${{ github.event.head_commit.message }}\nURL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }' \
+          "${{ secrets.INVMRKT_SANDBOX_DEPLOYMENT_WEBHOOK_URL }}"
+  
+      - name: Deployment Failure Notification
+        if: failure()
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+          -d '{
+                "text": "❌ Deployment failed\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\nAuthor: ${{ github.event.head_commit.author.name }}\nMessage: ${{ github.event.head_commit.message }}\nURL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }' \
+          "${{ secrets.INVMRKT_SANDBOX_DEPLOYMENT_WEBHOOK_URL }}"
+#
+#          #kubectl set image deployment/my-app-deployment my-app=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+#          #kubectl rollout status deployment/my-app-deployment
+#      
+#      # Verify Deployment and Rollback in Case of Failure
+#      #- name: Verify deployment
+#      #  run: |
+#      #    kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} -n default
+#      #    if [ $? -ne 0 ]; then
+#      #      kubectl rollout undo deployment/${{ env.DEPLOYMENT_NAME }} -n default
+#      #      exit 1
+#      #    fi
