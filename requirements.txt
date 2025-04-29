@@ -9,3 +9,4 @@ boto3>=1.28.38
 httpx>=0.24.1
 fastapi>=0.104.0
 uvicorn>=0.23.2 
+gunicorn==22.0.0
