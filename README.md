@@ -92,4 +92,4 @@ This gives the model much more flexibility to access any data source without bei
 - `app_direct.py`: FastAPI web server with direct API capabilities
 - `src/tools/`: Tools and functions for financial data
 - `src/chains/`: LangChain chains and agents
-- `src/visualization/`: Data visualization utilities 
+- `src/visualization/`: Data visualization utilities
