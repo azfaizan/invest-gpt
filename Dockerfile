@@ -34,4 +34,4 @@ RUN doppler configure set token ${INVESTGPT_TOKEN}
 EXPOSE 8001
 
 # Run the application
-CMD ["doppler", "run", "--", "gunicorn", "-c", "gunicorn_config.py", "main:app"]
+CMD ["doppler", "run", "--", "gunicorn", "-c", "gunicorn_config.py", "app.app"]
