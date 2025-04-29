@@ -21,7 +21,7 @@ spec:
       terminationGracePeriodSeconds: 20
       containers:
         - name: invest-gpt-stage
-          image: 116981791371.dkr.ecr.me-central-1.amazonaws.com/invest-gpt-stage:latest
+          image: 767398024024.dkr.ecr.me-central-1.amazonaws.com/invest-gpt-stage:latest
           imagePullPolicy: Always
           envFrom:
             - secretRef:
