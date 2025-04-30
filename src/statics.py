@@ -50,13 +50,10 @@ STATICS = {
 
 
 "web_search":"""
-                Description: Searches the web for real-time cryptocurrency information using the Tavily API. Acts as a critical fallback when other API data is insufficient, providing access to the most current market information, news, and trends not captured in structured API responses.
+                Description: Searches the web for real-time information using OpenAI's Chat API.
                 Parameters:
-                - query (string, required): The search query for cryptocurrency information. Should be specific and targeted to retrieve the most relevant results.
-                - days (integer, optional): Number of days to look back. Use smaller values for recent information, larger values for historical context. Defaults to 7.
-                - include_domains (array, optional): List of domains to include in the search. Defaults to \['https://coinmarketcap.com/currencies/\*/historical-data/'\]. Target authoritative sources based on the specific information needed.
-                - exclude_domains (array, optional): List of domains to exclude from the search. Use to filter out potentially misleading or low-quality sources.
-                Returns: A string containing search results and information from the web, including content, images, and summaries that can supplement or replace data from other functions when necessary, formatted as a text string.
+                - query (string, required): The search query for information. Should be specific and targeted to retrieve the most relevant results.
+                Returns: A string containing the search results and information from the web, formatted as a concise and accurate response based on the search results.
                 """,
 
 "get_current_date":"""
@@ -110,12 +107,16 @@ STATICS = {
                                - code_string (string, required): Plotly Python code to create a visualization. Must create a figure named 'fig'.
 
                                Available variables:
-                               - historical_quotes_df: Pandas DataFrame containing the historical cryptocurrency data
+                               - historical_quotes_df: Pandas DataFrame containing the required data
                                - pd: Pandas library
                                - go: Plotly's graph_objects module
                                - pc: Plotly's colors module
                                - make_subplots:  make_subplots for comparitive analysis.
-
+                               Best practice:
+                               - Plot size must be minimum 1024x1024.
+                               - Make sure to use the full width and height of the plot.
+                               - Use the make_subplots function to create a subplot for comparitive analysis.
+                        
                               """
 
 }
@@ -133,3 +134,6 @@ INVESTMENT_MARKET_API_BASE_URL = "api-stg-invmkt.agentmarket.ae"
 plot = None
 historical_quotes_df = None
 
+WEBSEARCH_MODEL="gpt-4o-search-preview-2025-03-11"
+
+MODEL_NAME="gpt-4o-2024-11-20"

@@ -17,7 +17,7 @@ from src.callbacks.llm_logger import LLMLogger
 # Load environment variables
 load_dotenv()
 
-def create_crypto_agent(model_name="gpt-4o-2024-08-06", verbose=True, **kwargs):
+def create_crypto_agent(model_name="gpt-4o-2024-11-20", verbose=True, **kwargs):
     """
     Create a conversational agent for crypto portfolio management.
     """
@@ -87,7 +87,7 @@ def create_crypto_agent(model_name="gpt-4o-2024-08-06", verbose=True, **kwargs):
     # Set up memory with the safer implementation
     memory = ConversationBufferWindowMemory(
         memory_key="chat_history",
-        k=10,
+        k=5,
         return_messages=True,
     )
     

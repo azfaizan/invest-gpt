@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import logging
 from  src.tools import financial_api
-
+from src.statics import MODEL_NAME
 from src.chains import create_crypto_agent
 
 # Configure logging
@@ -48,9 +48,9 @@ app.add_middleware(
 # Initialize agent
 #gpt-4o-search-preview
 agent = create_crypto_agent(
-    verbose=False,
-    model_name="gpt-4o-2024-08-06",
-    temperature=1,
+    verbose=True,
+    model_name=MODEL_NAME,
+    temperature=0,
     streaming=False
 )
 
@@ -76,10 +76,14 @@ async def process_query(request: QueryRequest):
         # Process the query with the agent
         print("*"*10,request.query)
         response = agent.invoke({"input": request.query})
-        
+        print("*"*10,"FINAL RESPONSE BY LLM *******",response)
         # Extract the response content
         output = response.get("output", "Sorry, I couldn't process your request.")
-        output = output.replace("#~#plot#~#", financial_api.plot if financial_api.plot else "")
+        if "#~#plot#~#" in output:
+            output = output.replace("#~#plot#~#", financial_api.plot if financial_api.plot else "")
+        if "#~#plot#~#" not in output and financial_api.plot is not None:
+            output = output + financial_api.plot
+        financial_api.plot = None    
         return  {
             'statusCode': 200,
             'headers': {'Content-Type': 'text/html'},

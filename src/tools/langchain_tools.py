@@ -13,12 +13,10 @@ from src.tools.financial_api import (
 from src.tools.financial_api import plotting_with_generated_code
 from src.statics import STATICS
 from datetime import datetime
+import json
 
 class WebSearchInput(BaseModel):
-    query: str = Field(..., description="The search query about cryptocurrency information")
-    days: int = Field(7, description="Number of days to look back")
-    include_domains: Optional[List[str]] = Field(None, description="List of domains to include in search")
-    exclude_domains: Optional[List[str]] = Field(None, description="List of domains to exclude from search")
+    query: str = Field(..., description="The search query about information")
 
 class CryptoMetaInfoInput(BaseModel):
     slug: str = Field(..., description="Cryptocurrency slug (e.g., 'bitcoin')")
@@ -42,41 +40,30 @@ class PlottingWithGeneratedCodeInput(BaseModel):
 class WebSearchTool(BaseTool):
     name: ClassVar[str] = "web_search"
     description: ClassVar[str] = STATICS["web_search"]
+    args_schema: Type[BaseModel] = WebSearchInput
     
     def _run(
         self, 
-        query: str = "", 
-        days: int = 7,
-        include_domains: Optional[List[str]] = None,
-        exclude_domains: Optional[List[str]] = None
-    ) -> dict:
+        query: str
+    ) -> str:
         """
-        Execute with either a string input or structured parameters
+        Execute web search using OpenAI's Chat API
         
         Args:
             query: The search query
-            days: Number of days to look back
-            include_domains: List of domains to include in search
-            exclude_domains: List of domains to exclude from search
         """
-        print(f"DEBUG - WebSearchTool received input: query='{query}', days={days}")
-        
-        # Handle case where input is just a string (basic query)
-        if not include_domains and not exclude_domains and query:
-            return web_search(
-                query=query,
-                days=days,
-                include_domains=None,
-                exclude_domains=None
-            )
+        try:
+            result = web_search(query=query)
+          
+            return result
             
-        # Handle structured input case
-        return web_search(
-            query=query,
-            days=days,
-            include_domains=include_domains,
-            exclude_domains=exclude_domains
-        )
+        except Exception as e:
+           
+            return str(e)
+    
+    def _arun(self, query: str) -> str:
+        """Async version of _run"""
+        return self._run(query)
 
 class CryptoMetaInfoTool(BaseTool):
     name: ClassVar[str] = "cryptocurrency_meta_info"
@@ -222,5 +209,19 @@ class PlottingWithGeneratedCodeTool(BaseTool):
             code_string: Plotly Python code to create a visualization
         """
         print(f"DEBUG - PlottingWithGeneratedCodeTool received code: '{code_string[:100]}...'")
-        return plotting_with_generated_code(code_string)
+        result = plotting_with_generated_code(code_string)
+        
+        if result.startswith("{error:"):
+            return result
+            
+        # Format the response as a valid JSON blob
+        response = {
+            "action": "Final Answer",
+            "action_input": f"The plot has been generated and saved. {result}"
+        }
+        return json.dumps(response)
+    
+    def _arun(self, code_string: str) -> str:
+        """Async version of _run"""
+        return self._run(code_string)
             

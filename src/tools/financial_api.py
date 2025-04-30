@@ -3,13 +3,16 @@ import os,json,http,logging
 from dotenv import load_dotenv
 from tavily import TavilyClient
 from fuzzywuzzy import fuzz
-from src.statics import CRYPTO_LIST, EXCHANGE_LIST, LAST_REFRESH, CACHE_DURATION, COIN_MARKET_CAP_API_BASE_URL ,INVESTMENT_MARKET_API_BASE_URL,historical_quotes_df
+from src.statics import WEBSEARCH_MODEL,CRYPTO_LIST, EXCHANGE_LIST, LAST_REFRESH, CACHE_DURATION, COIN_MARKET_CAP_API_BASE_URL ,INVESTMENT_MARKET_API_BASE_URL,historical_quotes_df
 import time,sys,pandas as pd , numpy as np
 import plotly.graph_objects as go
 import plotly.colors as pc
 from plotly.subplots import make_subplots
 import pandas as pd
 import re
+from langchain_openai import ChatOpenAI
+#from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
 
 plot, historical_quotes_df = None, None
@@ -76,50 +79,42 @@ except Exception as e:
 payload = ''
 
 @handle_request_error
-def web_search(query, days=7, include_domains=None, exclude_domains=None):
+def web_search(query):
     """
-    Search the web for real-time cryptocurrency information using Tavily API.
+    Search the web for real-time information using OpenAI's Chat API.
     
     Args:
-        query (str): The search query about cryptocurrency information
-        days (int, optional): Number of days to look back. Defaults to 7.
-        include_domains (list, optional): List of domains to include in search. 
-        exclude_domains (list, optional): List of domains to exclude from search.
+        query (str): The search query about information
     
     Returns:
-        dict: Search results and information from the web
+        str: A concise and accurate response based on the search results
     """
-    global tavily_client
-    if not tavily_client:
-        return {"status": 1, "error": "Tavily client is not initialized"}
-    
     if not query:
-        return {"status": 1, "error": "No search query provided"}
-    
-    # Set default domains if not provided
-    if not include_domains:
-        include_domains = ["https://coinmarketcap.com/currencies/*/historical-data/"]
+        return "No search query provided"
     
     try:
-        response = tavily_client.search(
-            query=query,
-            search_depth="advanced",
-            max_results=4,
-            include_answer=True,
-            include_raw_data=True,
-            include_images=True,
-            include_domains=include_domains,
-            exclude_domains=exclude_domains or []
+        print(f"DEBUG - web_search called with query: '{query}'")
+        
+        if not os.getenv("OPENAI_API_KEY"):
+            return "OpenAI API key not found"
+            
+        llm = ChatOpenAI(
+            model=WEBSEARCH_MODEL,
+            openai_api_key=os.getenv("OPENAI_API_KEY")
         )
         
-        return {
-            "status": 0,
-            "results": response,
-            "query": query
-        }
+        # Simple LLM call with the query
+        result = llm.invoke(f"Answer the following question: {query}")
+        
+        print(f"DEBUG - web_search result: {result}")
+
+        return result.content
+        
     except Exception as e:
-        logger.error(f"Error in web search: {str(e)}")
-        return {"status": 1, "error": f"Web search failed: {str(e)}"}
+        error_msg = f"Error in web search: {str(e)}"
+        print(f"DEBUG - {error_msg}")
+        logger.error(error_msg)
+        return error_msg
 
 @handle_request_error
 def stats_bond_meta(slug):
@@ -410,12 +405,8 @@ def cryptocurrency_historical_quotes(id_list, time_start, time_end, count=1, int
         # Return describe() as string
         return historical_quotes_df.describe(include='all').to_string()
         
-    except json.JSONDecodeError as e:
-        #logger.error(f"Failed to parse API response: {str(e)}")
-        return f"{{error:Failed to parse API response: {str(e)}}}"
     except Exception as e:
-        #logger.error(f"Unexpected error: {str(e)}")
-        return f"{{error:Unexpected error: {str(e)}}}"
+        return f"{{error:Error in cryptocurrency_historical_quotes: {str(e)}}}"
     finally:
         conn.close()
 
