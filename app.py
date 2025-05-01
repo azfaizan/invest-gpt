@@ -8,6 +8,7 @@ import logging
 from  src.tools import financial_api
 from src.statics import MODEL_NAME
 from src.chains import create_crypto_agent
+import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -67,6 +68,11 @@ class QueryResponse(BaseModel):
     visualization_html: Optional[str] = None
 
 # Routes
+@app.post("/health")
+async def health():
+    """Process a query and return a response"""
+    return str(datetime.datetime.now())
+        
 
 
 @app.post("/")
