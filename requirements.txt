@@ -1,14 +1,23 @@
-langchain>=0.1.0
-langchain-core>=0.1.0
-langchain-openai>=0.0.5
-langchain-community>=0.0.5
-tavily-python>=0.1.8
-python-dotenv>=1.0.0
-plotly>=5.18.0
-pandas>=2.0.0
-numpy>=1.25.0
-fuzzywuzzy>=0.18.0
-boto3>=1.28.38
-httpx>=0.24.1
-fastapi>=0.104.0
-uvicorn>=0.23.2 
+# Core dependencies
+langchain==0.3.23
+langchain-community==0.3.21
+langchain-core==0.3.52
+langchain-openai==0.3.13
+
+# OpenAI and API
+openai==1.75.0
+python-dotenv==1.1.0
+requests==2.32.3
+
+# Data processing and visualization
+pandas==2.0.0
+numpy==1.26.4
+plotly==6.0.1
+
+# Utilities
+pydantic==2.11.3
+typing_extensions==4.13.2
+
+# API dependencies (if using FastAPI)
+fastapi==0.115.12
+uvicorn==0.34.1 

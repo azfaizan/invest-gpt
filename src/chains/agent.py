@@ -3,41 +3,32 @@ from langchain.tools import Tool
 from src.statics import STATICS
 from src.tools import (
     WebSearchTool,
-    CryptoMetaInfoTool,
-    CryptoPriceStatsTool,
     CryptoHistoricalQuotesTool,
     PortfolioTool,
     GetCurrentDateTool,
-    CryptoSearchTool,
     ManipulateDatasetTool,
-    PlottingWithGeneratedCodeTool
+    PieChartTool,
+    LineChartTool,
+    BarChartTool,
+    HistogramTool,
+    ScatterPlotTool,
+    PortfolioVisualizationTool
 )
 from src.callbacks.llm_logger import LLMLogger
 
 # Load environment variables
 load_dotenv()
 
-def create_crypto_agent(model_name="gpt-4o-2024-11-20", verbose=True, **kwargs):
+def create_crypto_agent(model_name="gpt-4-0125-preview", verbose=True, **kwargs):
     """
     Create a conversational agent for crypto portfolio management.
     """
     from langchain.agents import initialize_agent, AgentType
-    from langchain.memory import ConversationBufferWindowMemory
+    from langchain.memory import ConversationBufferMemory
     from langchain_openai import ChatOpenAI
-    
-    # Custom memory class that can handle non-string outputs
-    #class SafeConversationMemory(ConversationBufferWindowMemory):
-    #    def save_context(self, inputs, outputs):
-    #        """Override save_context to ensure outputs are strings"""
-    #        # Convert any non-string outputs to string
-    #        if isinstance(outputs, dict) and "output" in outputs:
-    #            if not isinstance(outputs["output"], str):
-    #                outputs["output"] = str(outputs["output"])
-            
-            # Call the parent implementation
-    #        super().save_context(inputs, outputs)
-    
-    # Create a callback handler for logging LLM interactions
+    from langchain.prompts import MessagesPlaceholder
+    import json
+ 
     llm_logger = LLMLogger()
     
     # Initialize LLM with callbacks
@@ -47,62 +38,72 @@ def create_crypto_agent(model_name="gpt-4o-2024-11-20", verbose=True, **kwargs):
         **kwargs
     )
 
-    # Define a function that will handle API failures gracefully
-    def safe_crypto_price(id_input):
-        """Safe wrapper for the cryptocurrency price stats tool that handles API failures gracefully"""
-        try:
-            crypto_price_tool = CryptoPriceStatsTool()
-            result = crypto_price_tool._run(id_input)
-            return result
-        except Exception as e:
-            # Return a formatted error that suggests alternatives
-            return {
-                "status": 1,
-                "error": str(e),
-                "message": "Failed to retrieve cryptocurrency price data. Please try using web_search instead or verify the coin ID is correct."
-            }
-    
     # Use Tool class to ensure single-input interface
     tools = [
         WebSearchTool(),
-        Tool(
-            name="cryptocurrency_meta_info",
-            func=CryptoMetaInfoTool()._run,
-            description=STATICS["cryptocurrency_meta_info"]
-        ),
-        Tool(
-            name="cryptocurrency_price_performance_stats",
-            func=CryptoPriceStatsTool()._run,
-            description=STATICS["cryptocurrency_price_performance_stats"]
-        ),
-        # Use the updated CryptoHistoricalQuotesTool which now handles structured inputs correctly
         CryptoHistoricalQuotesTool(),
         PortfolioTool(),
         GetCurrentDateTool(),
-        CryptoSearchTool(),
         ManipulateDatasetTool(),
-        PlottingWithGeneratedCodeTool()
+        PieChartTool(),
+        LineChartTool(),
+        BarChartTool(),
+        HistogramTool(),
+        ScatterPlotTool(),
+        PortfolioVisualizationTool()
     ]
-    
-    # Set up memory with the safer implementation
-    memory = ConversationBufferWindowMemory(
+
+    # Create memory with proper configuration
+    memory = ConversationBufferMemory(
         memory_key="chat_history",
-        k=5,
-        return_messages=True,
+        return_messages=True
     )
-    
+
+    # Create the agent with custom prompt
+    system_message = """You are a cryptocurrency portfolio management assistant. You help users analyze and visualize their portfolio data.
+
+Key Instructions:
+1. When users ask to visualize, plot, show, or display their portfolio, ALWAYS use the create_portfolio_visualization tool first. This tool creates a comprehensive view with:
+   - A pie chart showing portfolio distribution
+   - A bar chart showing profit/loss by asset
    
-    
-    # Initialize the agent with system message and callbacks
+2. Only use other plotting tools (pie_chart, line_chart, etc.) when users specifically request:
+   - A specific type of chart
+   - A custom visualization with specific columns
+   - Additional analysis beyond the standard portfolio view
+
+3. For historical data queries:
+   - Use the get_crypto_historical_quotes tool with proper parameters
+   - If you don't know a cryptocurrency's ID, you can use its name or symbol
+   - Common IDs: Bitcoin (1), Ethereum (1027), BNB (1839), Solana (5426), Cardano (2010), FLOKI (8916)
+   - When a user asks about market data, use this tool to get the information
+
+4. After creating visualizations:
+   - Explain what the charts show
+   - Highlight key insights
+   - Point out notable patterns or trends
+
+5. Conversation Management:
+   - ALWAYS maintain context from previous messages
+   - When a user confirms something you asked (like correcting a typo), immediately proceed with the confirmed action
+   - For market cap or price queries, use get_crypto_historical_quotes with recent dates to get current data
+   - If you asked a clarifying question and got a confirmation, execute the intended action right away
+
+Remember: You must maintain conversation context. If you asked about a typo and the user confirmed the correct name, immediately proceed with their original request using the confirmed information."""
+
+    # Initialize the agent with memory configuration
     agent = initialize_agent(
         tools,
         llm,
         agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
         verbose=verbose,
         memory=memory,
-        callbacks=[llm_logger]  # Add our logger as a callback for the agent
+        agent_kwargs={
+            "system_message": system_message
+        },
+        handle_parsing_errors=True
     )
-   
+
     return agent
 
 # Helper function to parse input strings for multi-input tools

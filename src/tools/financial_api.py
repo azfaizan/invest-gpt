@@ -1,9 +1,7 @@
 import http.client
 import os,json,http,logging
 from dotenv import load_dotenv
-from tavily import TavilyClient
-from fuzzywuzzy import fuzz
-from src.statics import WEBSEARCH_MODEL,CRYPTO_LIST, EXCHANGE_LIST, LAST_REFRESH, CACHE_DURATION, COIN_MARKET_CAP_API_BASE_URL ,INVESTMENT_MARKET_API_BASE_URL,historical_quotes_df
+from src.statics import WEBSEARCH_MODEL, MODEL_NAME,CRYPTO_LIST, EXCHANGE_LIST, LAST_REFRESH, CACHE_DURATION, COIN_MARKET_CAP_API_BASE_URL ,INVESTMENT_MARKET_API_BASE_URL,historical_quotes_df
 import time,sys,pandas as pd , numpy as np
 import plotly.graph_objects as go
 import plotly.colors as pc
@@ -11,8 +9,6 @@ from plotly.subplots import make_subplots
 import pandas as pd
 import re
 from langchain_openai import ChatOpenAI
-#from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 
 
 plot, historical_quotes_df = None, None
@@ -24,16 +20,6 @@ load_dotenv()
 # Configure logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-tavily_client= None
-
-# Initialize Tavily client
-try:
-    TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-    tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
-except Exception as e:
-    logger.error(f"Failed to initialize Tavily client: {str(e)}")
-    tavily_client = None
 
 def handle_request_error(func):
     """Decorator to handle common API request errors"""
@@ -81,13 +67,13 @@ payload = ''
 @handle_request_error
 def web_search(query):
     """
-    Search the web for real-time information using OpenAI's Chat API.
+    Search the web for comprehensive financial information using OpenAI's Chat API.
     
     Args:
-        query (str): The search query about information
+        query (str): The search query about financial information
     
     Returns:
-        str: A concise and accurate response based on the search results
+        str: A comprehensive and accurate response based on the search results
     """
     if not query:
         return "No search query provided"
@@ -103,9 +89,24 @@ def web_search(query):
             openai_api_key=os.getenv("OPENAI_API_KEY")
         )
         
-        # Simple LLM call with the query
-        result = llm.invoke(f"Answer the following question: {query}")
+        # Enhanced prompt for financial information
+        prompt = f"""
+        You are a financial research assistant. Provide comprehensive information about:
+        {query}
         
+        Include:
+        1. Current market data and trends
+        2. Historical context and analysis
+        3. Key statistics and metrics
+        4. Relevant news and developments
+        5. Expert insights and forecasts
+        6. Risk factors and considerations
+        
+        Format the response in a clear, structured way without markdown or special formatting.
+        Focus on accuracy and relevance to financial markets and investments.
+        """
+        
+        result = llm.invoke(prompt)
         print(f"DEBUG - web_search result: {result}")
 
         return result.content
@@ -586,69 +587,6 @@ def search_assets(query, threshold=70, limit=10):
     
     return crypto_matches[:limit], exchange_matches[:limit]
 
-def plotting_with_generated_code(code_string):
-    """
-    Execute user-provided or LLM-generated Plotly code to create a plot from the global historical_quotes_df DataFrame,
-    storing the plot's HTML in the global 'plot' variable.
-    
-    Args:
-        code_string (str): Plotly code to execute, creating a figure named 'fig'.
-        
-    Returns:
-        str: "plot is saved in cache" on success, or an error message if execution fails.
-    """
-    global historical_quotes_df, plot
-    #logger = logging.getLogger(__name__)
-    print(f"DEBUG - plotting_with_generated_code called with code: {code_string}")
-    print(f"DEBUG - historical_quotes_df: {historical_quotes_df}")
-    if historical_quotes_df is None:
-        #logger.error("No DataFrame available. Run cryptocurrency_historical_quotes first.")
-        return "{error:No DataFrame available}"
-    
-    if not code_string.strip():
-        #logger.error("No code provided for plotting")
-        return "{error:No code provided}"
-    
-    # Clean the code - remove any fig.show() or similar display calls
-    # This is a safety measure in case the model still adds them despite the rules
-    cleaned_code = re.sub(r'fig\.show\(\s*\)', '', code_string)
-    cleaned_code = re.sub(r'fig\.write_html\(.*?\)', '', cleaned_code)
-    cleaned_code = re.sub(r'fig\.write_image\(.*?\)', '', cleaned_code)
-    cleaned_code = re.sub(r'display\(.*?fig.*?\)', '', cleaned_code)
-    
-    # Check if code was modified
-    if cleaned_code != code_string:
-        print("WARNING: Removed display/save calls from the code")
-    
-    # Define a restricted namespace for safe execution
-    namespace = {
-        'historical_quotes_df': historical_quotes_df,
-        'pd': pd,
-        'go': go,
-        'pc': pc,
-        'make_subplots': make_subplots
-    }
-    
-    try:
-        # Execute the cleaned code string
-        exec(cleaned_code, namespace)
-        
-        # Check if 'fig' was created
-        if 'fig' not in namespace:
-        #    logger.error("No Plotly figure named 'fig' was created")
-            return "{error:No Plotly figure named 'fig' was created}"
-        plot = namespace['fig'].to_html(full_html=False)
-        
-        return "plot is saved in cache"
-        
-    except SyntaxError as e:
-        #logger.error(f"Syntax error in provided code: {str(e)}")
-        return f"{{error:Syntax error: {str(e)}}}"
-    except Exception as e:
-        #logger.error(f"Error executing Plotly code: {str(e)}")
-        return f"{{error:Execution error: {str(e)}}}"
-
-@handle_request_error
 def search_coins(query, threshold=70, limit=10):
     """
     Search for cryptocurrencies and stocks by name, symbol, or partial match 
@@ -668,3 +606,415 @@ def search_coins(query, threshold=70, limit=10):
     matches = crypto_matches + exchange_matches
     
     return matches
+
+def create_pie_chart(labels_col, values_col, title="Portfolio Distribution", df=None):
+    """
+    Create a pie chart from DataFrame columns.
+    
+    Args:
+        labels_col: Column name for labels
+        values_col: Column name for values
+        title: Chart title
+        df: DataFrame containing the data (defaults to historical_quotes_df)
+        
+    Returns:
+        str: HTML of the plot
+    """
+    global plot, historical_quotes_df
+    df = df or historical_quotes_df
+    if df is None:
+        return "{error:No DataFrame available}"
+        
+    try:
+        # Calculate percentages for hover text
+        total = df[values_col].sum()
+        percentages = (df[values_col] / total * 100).round(2)
+        
+        # Create hover text with value and percentage
+        hover_text = [
+            f"{label}<br>Value: ${value:,.2f}<br>{percent}%"
+            for label, value, percent in zip(df[labels_col], df[values_col], percentages)
+        ]
+        
+        # Create the pie chart with enhanced styling
+        fig = go.Figure(data=[go.Pie(
+            labels=df[labels_col],
+            values=df[values_col],
+            hole=.4,  # Slightly larger hole for better aesthetics
+            text=df[labels_col],  # Labels inside the pie
+            textinfo='percent+label',
+            textposition='inside',
+            hoverinfo='text',
+            hovertext=hover_text,
+            marker=dict(
+                colors=pc.qualitative.Pastel,  # Use a pastel color palette
+                line=dict(color='#000000', width=1)  # Add black borders
+            ),
+            pull=[0.1 if i == df[values_col].idxmax() else 0 for i in range(len(df))]  # Pull out the largest slice
+        )])
+        
+        # Update layout with enhanced styling
+        fig.update_layout(
+            title_text=title,
+            title_font=dict(size=24, family='Arial', color='#2c3e50'),
+            width=1200,  # Wider for better visualization
+            height=800,  # Taller for better visualization
+            margin=dict(l=50, r=50, t=100, b=50),
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            paper_bgcolor='rgba(0,0,0,0)',  # Transparent background
+            plot_bgcolor='rgba(0,0,0,0)',   # Transparent background
+            annotations=[
+                dict(
+                    text=f"Total: ${total:,.2f}",
+                    x=0.5,
+                    y=0.5,
+                    font_size=20,
+                    showarrow=False
+                )
+            ]
+        )
+        
+        # Update traces with enhanced text styling
+        fig.update_traces(
+            textfont=dict(
+                family='Arial',
+                size=14,
+                color='#2c3e50'
+            ),
+            hovertemplate="%{hovertext}<extra></extra>"
+        )
+        
+        plot = fig.to_html(full_html=False)
+        return "plot is saved in cache"
+    except Exception as e:
+        return f"{{error:Error creating pie chart: {str(e)}}}"
+
+def create_line_chart(x_col, y_cols, title="Price Trend", df=None):
+    """
+    Create a line chart from DataFrame columns.
+    
+    Args:
+        x_col: Column name for x-axis
+        y_cols: List of column names for y-axis
+        title: Chart title
+        df: DataFrame containing the data (defaults to historical_quotes_df)
+        
+    Returns:
+        str: HTML of the plot
+    """
+    global plot, historical_quotes_df
+    df = df or historical_quotes_df
+    if df is None:
+        return "{error:No DataFrame available}"
+        
+    try:
+        fig = go.Figure()
+        for y_col in y_cols:
+            fig.add_trace(go.Scatter(
+                x=df[x_col],
+                y=df[y_col],
+                name=y_col,
+                mode='lines'
+            ))
+        # Set size for line chart with more width for time series
+        fig.update_layout(
+            title_text=title,
+            width=1200,  # Wider for better time series visualization
+            height=600,  # Standard height
+            margin=dict(l=50, r=50, t=50, b=50)
+        )
+        plot = fig.to_html(full_html=False)
+        return "plot is saved in cache"
+    except Exception as e:
+        return f"{{error:Error creating line chart: {str(e)}}}"
+
+def create_bar_chart(x_col, y_col, title="Bar Chart", df=None):
+    """
+    Create a bar chart from DataFrame columns.
+    
+    Args:
+        x_col: Column name for x-axis
+        y_col: Column name for y-axis
+        title: Chart title
+        df: DataFrame containing the data (defaults to historical_quotes_df)
+        
+    Returns:
+        str: HTML of the plot
+    """
+    global plot, historical_quotes_df
+    df = df or historical_quotes_df
+    if df is None:
+        return "{error:No DataFrame available}"
+        
+    try:
+        fig = go.Figure(data=[go.Bar(
+            x=df[x_col],
+            y=df[y_col]
+        )])
+        # Set size for bar chart with more width for bars
+        fig.update_layout(
+            title_text=title,
+            width=1000,  # Wider for better bar spacing
+            height=600,  # Standard height
+            margin=dict(l=50, r=50, t=50, b=50)
+        )
+        plot = fig.to_html(full_html=False)
+        return "plot is saved in cache"
+    except Exception as e:
+        return f"{{error:Error creating bar chart: {str(e)}}}"
+
+def create_histogram(column, title="Distribution", df=None):
+    """
+    Create a histogram from DataFrame column.
+    
+    Args:
+        column: Column name for the histogram
+        title: Chart title
+        df: DataFrame containing the data (defaults to historical_quotes_df)
+        
+    Returns:
+        str: HTML of the plot
+    """
+    global plot, historical_quotes_df
+    df = df or historical_quotes_df
+    if df is None:
+        return "{error:No DataFrame available}"
+        
+    try:
+        fig = go.Figure(data=[go.Histogram(
+            x=df[column]
+        )])
+        # Set size for histogram with more width for bins
+        fig.update_layout(
+            title_text=title,
+            width=1000,  # Wider for better bin visualization
+            height=600,  # Standard height
+            margin=dict(l=50, r=50, t=50, b=50)
+        )
+        plot = fig.to_html(full_html=False)
+        return "plot is saved in cache"
+    except Exception as e:
+        return f"{{error:Error creating histogram: {str(e)}}}"
+
+def create_scatter_plot(x_col, y_col, color_col=None, title="Scatter Plot", df=None):
+    """
+    Create a scatter plot from DataFrame columns.
+    
+    Args:
+        x_col: Column name for x-axis
+        y_col: Column name for y-axis
+        color_col: Column name for color coding (optional)
+        title: Chart title
+        df: DataFrame containing the data (defaults to historical_quotes_df)
+        
+    Returns:
+        str: HTML of the plot
+    """
+    global plot, historical_quotes_df
+    df = df or historical_quotes_df
+    if df is None:
+        return "{error:No DataFrame available}"
+        
+    try:
+        fig = go.Figure()
+        if color_col:
+            fig.add_trace(go.Scatter(
+                x=df[x_col],
+                y=df[y_col],
+                mode='markers',
+                marker=dict(
+                    color=df[color_col],
+                    colorscale='Viridis',
+                    showscale=True
+                )
+            ))
+        else:
+            fig.add_trace(go.Scatter(
+                x=df[x_col],
+                y=df[y_col],
+                mode='markers'
+            ))
+        # Set size for scatter plot with more width and less height
+        fig.update_layout(
+            title_text=title,
+            width=1200,  # Wider for better scatter visualization
+            height=500,  # Shorter for scatter plots
+            margin=dict(l=50, r=50, t=50, b=50)
+        )
+        plot = fig.to_html(full_html=False)
+        return "plot is saved in cache"
+    except Exception as e:
+        return f"{{error:Error creating scatter plot: {str(e)}}}"
+
+def create_portfolio_visualization(df=None):
+    """
+    Create a portfolio visualization with two subplots:
+    1. Pie chart showing asset distribution
+    2. Bar chart showing profit/loss by asset
+    
+    Args:
+        df: DataFrame containing the portfolio data (defaults to historical_quotes_df)
+        
+    Returns:
+        str: Success or error message in a consistent format
+    """
+    global plot, historical_quotes_df
+    
+    # If no DataFrame is provided, try to load it
+    if df is None and historical_quotes_df is None:
+        result = portfolio()
+        if isinstance(result, str) and "error" in result:
+            return result
+    
+    df = df or historical_quotes_df
+    if df is None:
+        return "{error:No portfolio data available. Please load your portfolio first.}"
+        
+    try:
+        # Create subplot figure
+        fig = make_subplots(
+            rows=1, 
+            cols=2,
+            specs=[[{"type": "pie"}, {"type": "bar"}]],
+            subplot_titles=("Portfolio Distribution", "Profit/Loss by Asset"),
+            horizontal_spacing=0.15  # Increase spacing between subplots
+        )
+        
+        # Define a better color palette - using a more visually distinct and professional palette
+        colors = [
+            '#2E86AB',  # Steel Blue
+            '#A23B72',  # Deep Rose
+            '#F18F01',  # Orange
+            '#C73E1D',  # Vermillion
+            '#3B1F2B',  # Dark Purple
+            '#44CF6C',  # Emerald
+            '#7209B7',  # Royal Purple
+            '#4361EE',  # Royal Blue
+            '#4CC9F0',  # Sky Blue
+            '#F72585',  # Hot Pink
+            '#7A9E9F',  # Sage
+            '#B5E48C',  # Lime
+            '#FF6B6B',  # Coral
+            '#4A4E69'   # Slate
+        ]
+        
+        # Calculate total portfolio value
+        total_value = df['current_value'].sum()
+        
+        # Sort data by value for better visualization
+        df_sorted = df.sort_values('current_value', ascending=False)
+        
+        # Create hover text for pie chart
+        pie_hover_text = [
+            f"{name}<br>Value: ${value:,.2f}<br>{(value/total_value*100):.1f}%"
+            for name, value in zip(df_sorted['name'], df_sorted['current_value'])
+        ]
+        
+        # Add pie chart trace
+        fig.add_trace(
+            go.Pie(
+                labels=df_sorted['name'],
+                values=df_sorted['current_value'],
+                hole=.5,  # Larger hole for better label spacing
+                textinfo='percent',  # Only show percentage to reduce clutter
+                textposition='outside',  # Move labels outside
+                hoverinfo='text',
+                hovertext=pie_hover_text,
+                marker=dict(
+                    colors=colors[:len(df_sorted)],
+                    line=dict(color='#ffffff', width=2)
+                ),
+                pull=[0.1 if i == 0 else 0 for i in range(len(df_sorted))]  # Pull out largest slice
+            ),
+            row=1, col=1
+        )
+        
+        # Sort data by profit/loss for bar chart
+        df_sorted_pl = df.sort_values('profit_loss', ascending=True)
+        
+        # Create hover text for bar chart
+        bar_hover_text = [
+            f"{name}<br>P/L: ${pl:,.2f}<br>{pl_percent:.1f}%"
+            for name, pl, pl_percent in zip(
+                df_sorted_pl['name'],
+                df_sorted_pl['profit_loss'],
+                df_sorted_pl['profit_loss_percent']
+            )
+        ]
+        
+        # Add bar chart trace
+        fig.add_trace(
+            go.Bar(
+                x=df_sorted_pl['name'],
+                y=df_sorted_pl['profit_loss'],
+                text=df_sorted_pl['profit_loss_percent'].round(1).astype(str) + '%',
+                textposition='auto',
+                hoverinfo='text',
+                hovertext=bar_hover_text,
+                marker=dict(
+                    color=df_sorted_pl['profit_loss'].apply(
+                        lambda x: '#44CF6C' if x >= 0 else '#FF6B6B'  # Softer green and red
+                    ),
+                    line=dict(color='#ffffff', width=2)
+                )
+            ),
+            row=1, col=2
+        )
+        
+        # Update layout
+        fig.update_layout(
+            title_text=f"Total Portfolio Value: ${total_value:,.2f}",
+            title_font=dict(size=24, family='Arial', color='#2c3e50'),
+            width=1800,  # Even wider for better spacing
+            height=900,  # Taller for better label visibility
+            margin=dict(l=50, r=50, t=120, b=80),  # Increased margins
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+           
+        )
+        
+        # Update pie chart subplot
+        fig.update_traces(
+            textfont=dict(
+                family='Arial',
+                size=14,
+                color='#2c3e50'
+            ),
+            hovertemplate="%{hovertext}<extra></extra>",
+            selector=dict(type='pie')
+        )
+        
+        # Update bar chart subplot
+        fig.update_xaxes(
+            title_text="Assets",
+            tickangle=45,
+            tickfont=dict(size=12),
+            row=1, col=2
+        )
+        fig.update_yaxes(
+            title_text="Profit/Loss ($)",
+            title_font=dict(size=14),
+            tickformat="$,.0f",  # Format y-axis labels as currency
+            row=1, col=2,
+            gridcolor='rgba(0,0,0,0.1)'  # Light grid lines
+        )
+        
+        plot = fig.to_html(full_html=False)
+        return "{success:Portfolio visualization created successfully}"
+    except Exception as e:
+        return f"{{error:Error creating portfolio visualization: {str(e)}}}"

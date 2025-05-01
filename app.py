@@ -75,10 +75,15 @@ async def process_query(request: QueryRequest):
     try:
         # Process the query with the agent
         print("*"*10,request.query)
-        response = agent.invoke({"input": request.query})
+        response = agent.invoke({"input": request.query, "chat_history": []})
         print("*"*10,"FINAL RESPONSE BY LLM *******",response)
+        
         # Extract the response content
-        output = response.get("output", "Sorry, I couldn't process your request.")
+        if isinstance(response, dict):
+            output = response.get("output", "Sorry, I couldn't process your request.")
+        else:
+            output = str(response)
+            
         if "#~#plot#~#" in output:
             output = output.replace("#~#plot#~#", financial_api.plot if financial_api.plot else "")
         if "#~#plot#~#" not in output and financial_api.plot is not None:
@@ -92,7 +97,6 @@ async def process_query(request: QueryRequest):
     
     except Exception as e:
         logger.exception("Error processing query")
-        #raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
         return {
             'statusCode': 500,
             'headers': {'Content-Type': 'text/html'},
