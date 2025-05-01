@@ -21,3 +21,5 @@ typing_extensions==4.13.2
 # API dependencies (if using FastAPI)
 fastapi==0.115.12
 uvicorn==0.34.1 
+
+gunicorn==22.0.0
