@@ -68,7 +68,7 @@ class QueryResponse(BaseModel):
     visualization_html: Optional[str] = None
 
 # Routes
-@app.post("/health")
+@app.get("/health")
 async def health():
     """Process a query and return a response"""
     return str(datetime.datetime.now())
