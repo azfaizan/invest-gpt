@@ -31,3 +31,5 @@ visualization_*.html
 demo_client.py
 direct_api_cli.py
 app_direct.py
+Dockerfile
+.dockerignore
