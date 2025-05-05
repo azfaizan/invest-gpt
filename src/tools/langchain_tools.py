@@ -66,12 +66,15 @@ class WebSearchTool(BaseTool):
             query: The search query
         """
         try:
+            print(f"DEBUG - WebSearchTool._run called with query: '{query}'")
             result = web_search(query=query)
+            print(f"DEBUG - WebSearchTool._run result type: {type(result)}")
+            print(f"DEBUG - WebSearchTool._run result (first 100 chars): {result[:100] if isinstance(result, str) else result}")
           
             return result
             
         except Exception as e:
-           
+            print(f"DEBUG - WebSearchTool._run error: {str(e)}")
             return str(e)
     
     def _arun(self, query: str) -> str:

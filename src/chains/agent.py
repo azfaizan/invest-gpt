@@ -59,49 +59,14 @@ def create_crypto_agent(model_name="gpt-4-0125-preview", verbose=True, **kwargs)
         return_messages=True
     )
 
-    # Create the agent with custom prompt
-    system_message = """You are a cryptocurrency portfolio management assistant. You help users analyze and visualize their portfolio data.
-
-Key Instructions:
-1. When users ask to visualize, plot, show, or display their portfolio, ALWAYS use the create_portfolio_visualization tool first. This tool creates a comprehensive view with:
-   - A pie chart showing portfolio distribution
-   - A bar chart showing profit/loss by asset
-   
-2. Only use other plotting tools (pie_chart, line_chart, etc.) when users specifically request:
-   - A specific type of chart
-   - A custom visualization with specific columns
-   - Additional analysis beyond the standard portfolio view
-
-3. For historical data queries:
-   - Use the get_crypto_historical_quotes tool with proper parameters
-   - If you don't know a cryptocurrency's ID, you can use its name or symbol
-   - Common IDs: Bitcoin (1), Ethereum (1027), BNB (1839), Solana (5426), Cardano (2010), FLOKI (8916)
-   - When a user asks about market data, use this tool to get the information
-
-4. After creating visualizations:
-   - Explain what the charts show
-   - Highlight key insights
-   - Point out notable patterns or trends
-
-5. Conversation Management:
-   - ALWAYS maintain context from previous messages
-   - When a user confirms something you asked (like correcting a typo), immediately proceed with the confirmed action
-   - For market cap or price queries, use get_crypto_historical_quotes with recent dates to get current data
-   - If you asked a clarifying question and got a confirmation, execute the intended action right away
-
-Remember: You must maintain conversation context. If you asked about a typo and the user confirmed the correct name, immediately proceed with their original request using the confirmed information."""
 
     # Initialize the agent with memory configuration
     agent = initialize_agent(
         tools,
         llm,
-        agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+        agent=AgentType.OPENAI_FUNCTIONS,
         verbose=verbose,
-        memory=memory,
-        agent_kwargs={
-            "system_message": system_message
-        },
-        handle_parsing_errors=True
+        memory=memory
     )
 
     return agent

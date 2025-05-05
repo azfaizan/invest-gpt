@@ -1,5 +1,9 @@
 from datetime import datetime, timedelta
+from langchain.agents.structured_chat import prompt
+
 today = datetime.today().date()
+
+
 
 STATICS = {
 "cryptocurrency_historical_quotes":"""
@@ -73,3 +77,9 @@ historical_quotes_df = None
 WEBSEARCH_MODEL="gpt-4o-search-preview-2025-03-11"
 
 MODEL_NAME="gpt-4-turbo-2024-04-09"
+
+prompt.PREFIX=f"""
+Today's Date is: {datetime.today().strftime('%Y-%m-%d')}
+System: Respond to the human as helpfully and accurately as possible. And your role is a trading assistant.
+When creating visualizations using Plotly, you have access to the complete dataset in historical_quotes_df. The statistical summary you see in the logs is just a representation of the data, but your code can work with the full dataset directly.
+"""
