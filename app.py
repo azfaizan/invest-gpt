@@ -5,24 +5,31 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import logging
+from src.utils.logger_factory import LoggerFactory
 from src.tools import financial_api
 from src.statics import MODEL_NAME
 import json
-from src.utils.logger_factory import LoggerFactory
 
-# Load environment variables
 load_dotenv()
-print("*******************","Initilizing logger")
-# Setup logging using the new logger factory
-logger = LoggerFactory.create_logger(
-    service_name="invest-gpt"
+
+logger = LoggerFactory.create_logger(service_name="invest-gpt")
+logger.notice("Application starting up, Logger initialized")
+
+
+app = FastAPI(
+    title="CryptoAdvisor API",
+    description="LangChain-based API for cryptocurrency investment information and visualization",
+    version="1.0.0"
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Log app startup
-logger.notice("Application starting up")
-print("*******************","Initilized logger")
-# Check required environment variables
+
 required_vars = ["OPENAI_API_KEY"]
 missing_vars = [var for var in required_vars if not os.getenv(var)]
 if missing_vars:
@@ -32,36 +39,19 @@ if missing_vars:
     )
     raise EnvironmentError(f"Missing required environment variables: {', '.join(missing_vars)}")
 
-# Function to get portfolio data
+
+
+
+class QueryRequest(BaseModel):
+    """Model for query requests"""
+    query: str
+
+
 def portfolio_get_data():
     """Get the user's portfolio data including stocks and cryptocurrency holdings"""
     print("portfolio_get_data called")
     return financial_api.portfolio_json()
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="CryptoAdvisor API",
-    description="LangChain-based API for cryptocurrency investment information and visualization",
-    version="1.0.0"
-)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Adjust for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-
-# Define request model
-class QueryRequest(BaseModel):
-    """Model for query requests"""
-    query: str
-
-# Routes
 @app.get("/health")
 async def health():
     """Process a query and return a response"""

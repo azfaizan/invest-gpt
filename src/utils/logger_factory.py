@@ -119,6 +119,7 @@ class AxiomLogger(LoggerInterface):
     def _send_log(self, log_data: Dict[str, Any]):
         """Send log data to Axiom"""
         try:
+            
             self.client.ingest_events(dataset=self.dataset, events=[log_data])
         except Exception as e:
             # Fallback to console logging if Axiom fails

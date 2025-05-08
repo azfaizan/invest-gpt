@@ -5,17 +5,15 @@ import time,sys,pandas as pd , numpy as np, plotly.graph_objects as go, plotly.c
 from plotly.subplots import make_subplots
 import pandas as pd
 from datetime import datetime
-
+from src.utils.logger_factory import LoggerFactory
 
 plot, historical_quotes_df = None, None
 
 
 # Load environment variables
 load_dotenv()
-
-# Configure logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger = LoggerFactory.create_logger(service_name="invest-gpt")
+logger.notice("Application starting up, Logger initialized")
 
 
 def get_new_token(): 
@@ -696,8 +694,7 @@ def portfolio_json():
         crypto_info = crypto_data.get('data').get('holdings', [])
     except Exception as e:
         logger.error(f"Error getting crypto data: {str(e)}")
-        raise e
-        crypto_info = []
+        crypto_info = [f"{str(e)}"]
     
     # Prepare combined portfolio data
     portfolio_data = {
