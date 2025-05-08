@@ -8,7 +8,6 @@ from pydantic import BaseModel
 import logging
 from src.tools import financial_api
 from src.statics import MODEL_NAME
-from src.chains import create_crypto_agent
 import json
 from src.utils.logger_factory import LoggerFactory
 
@@ -55,13 +54,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize agent
-agent = create_crypto_agent(
-    verbose=True,
-    model_name=MODEL_NAME,
-    temperature=0,
-    streaming=False
-)
+
 
 # Define request model
 class QueryRequest(BaseModel):
@@ -94,7 +87,7 @@ async def process_query(request: QueryRequest):
         )
         
         # Create LLM instance
-        llm = ChatOpenAI(model="gpt-4o", temperature=0)
+        llm = ChatOpenAI(model=MODEL_NAME, temperature=0)
         
         # Define tools
         web_search_tool = {"type": "web_search_preview"}
