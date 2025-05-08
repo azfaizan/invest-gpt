@@ -21,6 +21,10 @@ STATICS = {
               Description: Retrieves details of the user's stock portfolio and cryptocurrency portfolio, creates a DataFrame, and returns statistical analysis.
               Returns: A statistical summary of the portfolio.""",
 
+"portfolio_data":"""
+              Description: Retrieves detailed information about the user's stock and cryptocurrency portfolio in JSON format.
+              Returns: A JSON object containing complete portfolio data including stocks, crypto, and summary statistics with calculated values and percentages.""",
+
 "web_search":"""
                 Description: Searches the web for comprehensive financial information using OpenAI's Chat API.
                 Parameters:
@@ -76,7 +80,7 @@ historical_quotes_df = None
 
 WEBSEARCH_MODEL="gpt-4o-search-preview-2025-03-11"
 
-MODEL_NAME="gpt-4-turbo-2024-04-09"
+MODEL_NAME="gpt-4o"
 
 prompt.PREFIX=f"""
 Today's Date is: {datetime.today().strftime('%Y-%m-%d')}

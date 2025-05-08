@@ -2,63 +2,42 @@ import os
 import datetime
 from typing import Optional
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import logging
 from src.tools import financial_api
 from src.statics import MODEL_NAME
 from src.chains import create_crypto_agent
+import json
+from src.utils.logger_factory import LoggerFactory
 
 # Load environment variables
 load_dotenv()
-
-# Setup logging - use regular logging as fallback
-logger = logging.getLogger("invest-gpt")
-logger.setLevel(logging.INFO)
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logger.addHandler(console_handler)
-
-# Try to use Axiom logging if available
-try:
-    from src.utils.axiom_logger import create_logger
-    
-    # Get Axiom configuration from environment variables
-    axiom_token = os.getenv("AXIOM_TOKEN")
-    axiom_org_id = os.getenv("AXIOM_ORG_ID")
-    axiom_dataset = os.getenv("AXIOM_DATASET", "invest-gpt-logs")
-    
-    if not axiom_token:
-        logger.warning("AXIOM_TOKEN not found in environment variables")
-    
-    if not axiom_org_id:
-        logger.warning("AXIOM_ORG_ID not found in environment variables")
-    
-    # Create logger with explicit token and org_id
-    axiom_logger = create_logger(
-        name="invest-gpt",
-        dataset=axiom_dataset,
-        token=axiom_token,
-        org_id=axiom_org_id,
-        additional_fields={"app_version": "1.0.0"}
-    )
-    
-    # If successful, replace the default logger
-    logger = axiom_logger
-    logger.info(f"Axiom logging initialized successfully with dataset: {axiom_dataset}")
-except Exception as e:
-    logger.warning(f"Failed to initialize Axiom logging, using standard logging: {str(e)}")
+print("*******************","Initilizing logger")
+# Setup logging using the new logger factory
+logger = LoggerFactory.create_logger(
+    service_name="invest-gpt"
+)
 
 # Log app startup
-logger.info("Application starting up")
-
+logger.notice("Application starting up")
+print("*******************","Initilized logger")
 # Check required environment variables
 required_vars = ["OPENAI_API_KEY"]
 missing_vars = [var for var in required_vars if not os.getenv(var)]
 if missing_vars:
-    logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
+    logger.critical(
+        f"Missing required environment variables",
+        context={"missing_vars": missing_vars}
+    )
     raise EnvironmentError(f"Missing required environment variables: {', '.join(missing_vars)}")
+
+# Function to get portfolio data
+def portfolio_get_data():
+    """Get the user's portfolio data including stocks and cryptocurrency holdings"""
+    print("portfolio_get_data called")
+    return financial_api.portfolio_json()
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -93,31 +72,114 @@ class QueryRequest(BaseModel):
 @app.get("/health")
 async def health():
     """Process a query and return a response"""
-    return str(datetime.datetime.now())
+    current_time = datetime.datetime.now()
+    logger.debug("Health check", context={"timestamp": current_time.isoformat()})
+    return str(current_time)
         
 @app.post("/")
 async def process_query(request: QueryRequest):
     """Process a query and return a response"""
+    from langchain_openai import ChatOpenAI
+    
+    request_id = str(datetime.datetime.now().timestamp())
+    
     try:
         # Log incoming query
-        logger.info(f"Processing query: {request.query}")
+        logger.info(
+            f"Processing query",
+            context={
+                "request_id": request_id,
+                "query": request.query
+            }
+        )
         
-        # Process the query with the agent
-        response = agent.invoke({"input": request.query, "chat_history": []})
-        logger.info("Query processed successfully")
+        # Create LLM instance
+        llm = ChatOpenAI(model="gpt-4o", temperature=0)
         
-        # Extract the response content
-        if isinstance(response, dict):
-            output = response.get("output", "Sorry, I couldn't process your request.")
+        # Define tools
+        web_search_tool = {"type": "web_search_preview"}
+        portfolio_tool = {
+            "type": "function",
+            "function": {
+                "name": "portfolio_get_data",
+                "description": "Get the user's portfolio data including stocks and cryptocurrency holdings",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        }
+        
+        # Set up available functions
+        available_functions = {
+            "portfolio_get_data": portfolio_get_data
+        }
+        
+        # Bind tools
+        llm_with_tools = llm.bind_tools([web_search_tool, portfolio_tool])
+        
+        # Create conversation
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant that can search the web and retrieve portfolio data. For queries about the user's investments, holdings, or portfolio, use the portfolio_get_data function."},
+            {"role": "user", "content": request.query}
+        ]
+        
+        print("*******************", "Processing query:", request.query)
+        
+        # First model call to get response or tool calls
+        response = llm_with_tools.invoke(messages)
+        print("*******************", "Initial response:", response)
+        
+        # Check for tool calls
+        if hasattr(response, 'tool_calls') and response.tool_calls:
+            print("*******************", "Found tool calls:", response.tool_calls)
+            tool_outputs = []
+            
+            for tool_call in response.tool_calls:
+                print("*******************", "Tool call:", tool_call)
+                function_name = tool_call['name']
+                function_args = tool_call['args']
+                print("*******************", "Function name:", function_name)
+                if function_name in available_functions:
+                    function_to_call = available_functions[function_name]
+                    print(f"*******************", f"Calling {function_name} with args {function_args}")
+                    function_response = function_to_call(**function_args)
+                    
+                    tool_outputs.append({
+                        "tool_call_id": tool_call['id'],
+                        "role": "tool",
+                        "name": function_name,
+                        "content": json.dumps(function_response)
+                    })
+            
+            # Add the assistant's message with the tool calls
+            messages.append(response)
+            
+            # Add all tool outputs
+            messages.extend(tool_outputs)
+            
+            # Get a second response that incorporates the tool outputs
+            second_response = llm_with_tools.invoke(messages)
+            print("*******************", "Second response:", second_response)
+            
+            output = second_response.content
         else:
-            output = str(response)
+            # If no tool calls, just use the initial response
+            output = response.content
+        
+        print("*******************", "Final output:", output)
             
         # Handle visualization content
         if "#~#plot#~#" in output:
             output = output.replace("#~#plot#~#", financial_api.plot if financial_api.plot else "")
         if "#~#plot#~#" not in output and financial_api.plot is not None:
             output = output + financial_api.plot
-        financial_api.plot = None    
+        financial_api.plot = None
+        
+        logger.debug(
+            "Returning HTML response",
+            context={"response": output, "content_type": "text/html"}
+        )
         
         return {
             'statusCode': 200,
@@ -126,15 +188,22 @@ async def process_query(request: QueryRequest):
         }
     
     except Exception as e:
-        logger.error(f"Error processing query: {str(e)}")
+        import traceback
+        traceback_str = traceback.format_exc()
+        logger.error(
+            f"Error processing query",
+            context={"request_id": request_id, "traceback": traceback_str},
+            exception=e
+        )
+        raise e
         return {
             'statusCode': 500,
             'headers': {'Content-Type': 'text/html'},
-            'body': f"<p>Error processing your request please try again later</p>"
+            'body': f"<p>Error processing your request: {str(e)}</p>"
         }
 
 # Run the FastAPI app
 if __name__ == "__main__":
     import uvicorn
-    logger.info("Starting uvicorn server on port 8000")
+    logger.notice("Starting uvicorn server on port 8000")
     uvicorn.run(app, host="0.0.0.0", port=8000) 
