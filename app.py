@@ -11,11 +11,6 @@ from src.statics import MODEL_NAME
 import json
 
 load_dotenv()
-
-logger = LoggerFactory.create_logger(service_name="invest-gpt")
-logger.notice("Application starting up, Logger initialized")
-
-
 app = FastAPI(
     title="CryptoAdvisor API",
     description="LangChain-based API for cryptocurrency investment information and visualization",
@@ -28,6 +23,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+logger = LoggerFactory.create_logger(service_name="invest-gpt")
+logger.notice("Application starting up, Logger initialized")
 
 
 required_vars = ["OPENAI_API_KEY"]
