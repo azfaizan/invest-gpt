@@ -15,7 +15,7 @@ app = FastAPI(
     title="CryptoAdvisor API",
     description="LangChain-based API for cryptocurrency investment information and visualization",
     version="1.0.0"
-)
+    )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -37,8 +37,6 @@ if missing_vars:
     raise EnvironmentError(f"Missing required environment variables: {', '.join(missing_vars)}")
 
 
-
-
 class QueryRequest(BaseModel):
     """Model for query requests"""
     query: str
@@ -53,7 +51,6 @@ def portfolio_get_data():
 async def health():
     """Process a query and return a response"""
     current_time = datetime.datetime.now()
-    logger.debug("Health check", context={"timestamp": current_time.isoformat()})
     return str(current_time)
         
 @app.post("/")

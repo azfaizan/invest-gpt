@@ -693,7 +693,7 @@ def portfolio_json():
         crypto_data = portfolio_crypto()
         crypto_info = crypto_data.get('data').get('holdings', [])
     except Exception as e:
-        logger.error(f"Error getting crypto data: {str(e)}")
+        logger.error(f"Error getting crypto data: {str(e)}  details={stocks_data,crypto_data}")
         crypto_info = [f"{str(e)}"]
     
     # Prepare combined portfolio data
