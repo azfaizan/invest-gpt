@@ -25,6 +25,7 @@ def get_new_token():
     headers = {
         'Content-Type': 'application/json',
     }
+    logger.info(f"Getting new token, payload={payload}, headers={headers}")
     conn.request("POST", "/auth/refresh-token", payload, headers)
     res = conn.getresponse()
     data = res.read()
