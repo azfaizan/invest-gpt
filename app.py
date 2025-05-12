@@ -144,14 +144,7 @@ async def process_query(request: QueryRequest):
             # If no tool calls, just use the initial response
             output = response.content
         
-        print("*******************", "Final output:", output)
-            
-        # Handle visualization content
-        if "#~#plot#~#" in output:
-            output = output.replace("#~#plot#~#", financial_api.plot if financial_api.plot else "")
-        if "#~#plot#~#" not in output and financial_api.plot is not None:
-            output = output + financial_api.plot
-        financial_api.plot = None
+       
         
         logger.debug(
             "Returning HTML response",
