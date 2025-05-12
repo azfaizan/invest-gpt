@@ -15,6 +15,8 @@ load_dotenv()
 logger = LoggerFactory.create_logger(service_name="invest-gpt")
 logger.notice("Application starting up, Logger initialized")
 
+barear = None
+payload = ''
 
 def get_new_token(): 
     conn = http.client.HTTPConnection(INVESTMENT_MARKET_API_BASE_URL)
@@ -53,8 +55,6 @@ try:
 except Exception as e:
     logger.error(f"Failed to set bearer token: {str(e)}")
     barear = None
-
-payload = ''
 
 def portfolio():
     """
