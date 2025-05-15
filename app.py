@@ -53,7 +53,7 @@ async def health():
     current_time = datetime.datetime.now()
     return str(current_time)
         
-@app.post("/")
+@app.post("/query")
 async def process_query(request: QueryRequest):
     """Process a query and return a response"""
     from langchain_openai import ChatOpenAI
