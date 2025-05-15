@@ -166,7 +166,7 @@ async def health():
     current_time = datetime.datetime.now()
     return str(current_time)
         
-@app.post("/")
+@app.post("/query")
 async def process_query(request: QueryRequest):
     """Process a query and return a response"""
     from langchain_openai import ChatOpenAI
@@ -185,7 +185,7 @@ async def process_query(request: QueryRequest):
         
         # Create LLM instance
         llm = ChatOpenAI(model=MODEL_NAME, temperature=0)
-        
+
         # Define tools
         web_search_tool = {"type": "web_search_preview"}
         portfolio_tool = {
@@ -223,7 +223,7 @@ async def process_query(request: QueryRequest):
         
         # Create conversation with system and user messages
         messages = [
-            {"role": "system", "content": STATICS.SYSTEM_PROMPT},
+            {"role": "system", "content": STATICS['SYSTEM_PROMPT']},
             {"role": "user", "content": request.query}
         ]
         
@@ -232,7 +232,6 @@ async def process_query(request: QueryRequest):
         # Initialize variables for the tool calling loop
         max_iterations = 5  # Prevent infinite loops
         iteration = 0
-        final_output = None
         
         #print(f"{'*'*50}\n{'*'*20} LLM CALL  {'*'*20}\n{'*'*50}")
         logger.info("LLM CALL", context={"messages": messages})
@@ -240,7 +239,7 @@ async def process_query(request: QueryRequest):
         response = llm_with_tools.invoke(messages)
         #print(f"{'*'*50}\n{'*'*20} Response  {'*'*20}\n{'*'*50}")
         #print(response)
-        logger.info("LLM Response", context={"response": response})
+        logger.info("LLM Response", context={"response": response.content})
         plot_id=None
         while iteration < max_iterations:
             iteration += 1
@@ -248,7 +247,6 @@ async def process_query(request: QueryRequest):
             logger.info("ITERATION", context={"iteration": iteration})
             if not hasattr(response, 'tool_calls') or not response.tool_calls:
                 logger.info("No tool calls in response, using as final output")
-                final_output = "".join(text['text'] for text in response.content)
                 break
   
             messages.append(response)
@@ -291,29 +289,30 @@ async def process_query(request: QueryRequest):
             
             try:
                 #print(f"{'*'*50}\n{'*'*20} LLM CALL {messages} {'*'*20}\n{'*'*50}")
-                logger.info("LLM CALL", context={"messages": messages})
+                logger.info("LLM CALL", context={"messages": "".join(str(message) for message in messages)})
                 response = llm_with_tools.invoke(messages)
+                logger.info("LLM Response", context={"response": response.content})
                 #print(f"{'*'*50}\n{'*'*20} LLM Response{'*'*20}\n{'*'*50}")
                 #print(response,"\n\n")
             except Exception as e:
                 logger.error(f"Error getting LLM response: {str(e)}")
-                final_output = f"Error processing your request after {iteration} iterations: {str(e)}"
+                response = f"Error processing your request after {iteration} iterations: {str(e)}"
                 break
         
 
         if iteration >= max_iterations and (hasattr(response, 'tool_calls') and response.tool_calls):
             logger.warning(f"Reached maximum iterations ({max_iterations}), breaking the loop")
-            final_output = f"I've reached the maximum number of tool calls ({max_iterations}). Here's what I've found so far:\n\n{response.content}"
+            response = f"I've reached the maximum number of tool calls ({max_iterations}). Here's what I've found so far:\n\n{response.content}"
         
-        # Use final output if available, otherwise use the last response content
-        output = final_output if final_output is not None else response.content
-        logger.info("FINAL OUTPUT", context={"output": output})
+        response = response.content if type(response) != str else response 
+        #print(response)   
+        logger.info("FINAL OUTPUT", context={"output": response})
         plot_html=plot_cache[plot_id] if plot_id else None
         plot_cache.pop(plot_id, None)
         return {
             'statusCode': 200,
             "headers": {"Content-Type": "text/html"},
-            'body': output,
+            'body': response,
             "html": plot_html}
     
     except Exception as e:

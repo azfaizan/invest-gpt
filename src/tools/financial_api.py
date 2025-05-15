@@ -5,7 +5,7 @@ import plotly.graph_objects as go, plotly.colors as pc
 from plotly.subplots import make_subplots
 from datetime import datetime
 from src.utils.logger_factory import LoggerFactory
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple, Union
 
 
 # Load environment variables
@@ -14,71 +14,169 @@ logger = LoggerFactory.create_logger(service_name="invest-gpt")
 logger.notice("Application starting up, Logger initialized")
 
 
-def get_new_token():
- 
-    conn = http.client.HTTPConnection(INVESTMENT_MARKET_API_BASE_URL)
-    payload = json.dumps({
-        "refreshToken": os.getenv("REFRESH_TOKEN"),
-        "userName": os.getenv("USER_NAME")
-    })
-    headers = {
-        'Content-Type': 'application/json',
-    }
-    logger.info(f"Getting new token, payload={payload}, headers={headers}")
-    conn.request("POST", "/auth/refresh-token", payload, headers)
-    res = conn.getresponse()
-    data = res.read()
-    data_r = json.loads(data.decode("utf-8"))
-    
-    # Check if the 'data' key exists in the response
-    if 'data' not in data_r:
-        logger.error(f"Invalid token response: {json.dumps(data_r)}")
-        return json.dumps(data_r)
-    
-    # Check if the 'accessToken' key exists in the data
-    if 'accessToken' not in data_r['data']:
-        logger.error(f"No accessToken in response data: {json.dumps(data_r['data'])}")
-        return json.dumps(data_r)
-    
-    return data_r['data']['accessToken']
+class AuthenticationError(Exception):
+    """Exception raised for authentication issues."""
+    pass
 
-def portfolio_stocks(barear):
+
+def get_new_token() -> str:
+    """
+    Get a new authentication token using refresh token.
+    
+    Returns:
+        str: New access token
+        
+    Raises:
+        AuthenticationError: If token retrieval fails
+    """
+    try:
+        conn = http.client.HTTPConnection(INVESTMENT_MARKET_API_BASE_URL)
+        payload = json.dumps({
+            "refreshToken": os.getenv("REFRESH_TOKEN"),
+            "userName": os.getenv("USER_NAME")
+        })
+        headers = {
+            'Content-Type': 'application/json',
+        }
+        logger.info(f"Getting new token", context={"payload_length": len(payload)})
+        
+        conn.request("POST", "/auth/refresh-token", payload, headers)
+        res = conn.getresponse()
+        data = res.read()
+        data_r = json.loads(data.decode("utf-8"))
+        
+        # Check if the 'data' key exists in the response
+        if 'data' not in data_r:
+            logger.error(f"Invalid token response", context={"response": data_r})
+            raise AuthenticationError("Invalid token response format")
+        
+        # Check if the 'accessToken' key exists in the data
+        if 'accessToken' not in data_r['data']:
+            logger.error(f"No accessToken in response data", context={"data": data_r['data']})
+            raise AuthenticationError("No access token in response")
+        
+        return data_r['data']['accessToken']
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error in token response", context={"error": str(e)})
+        raise AuthenticationError(f"Failed to parse token response: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error getting new token", context={"error": str(e)})
+        raise AuthenticationError(f"Failed to get authentication token: {str(e)}")
+
+
+def make_authenticated_request(endpoint: str, method: str = "GET", payload: str = '') -> Dict[str, Any]:
+    """
+    Make an authenticated request to the investment market API.
+    
+    Args:
+        endpoint: API endpoint path
+        method: HTTP method (GET, POST, etc.)
+        payload: Request payload for POST requests
+        
+    Returns:
+        dict: Response data as dictionary
+        
+    Raises:
+        AuthenticationError: If authentication fails
+        ConnectionError: If connection fails
+        ValueError: If response parsing fails
+    """
+    try:
+        token = get_new_token()
+        bearer = f"Bearer {token}"
+        
+        conn = http.client.HTTPConnection(INVESTMENT_MARKET_API_BASE_URL)
+        headers = {
+            'Authorization': bearer,
+        }
+        
+        conn.request(method, endpoint, payload, headers)
+        res = conn.getresponse()
+        data = res.read()
+        
+        try:
+            return json.loads(data.decode("utf-8"))
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse API response", context={"error": str(e)})
+            raise ValueError(f"Invalid JSON response: {str(e)}")
+            
+    except AuthenticationError:
+        # Re-raise authentication errors
+        raise
+    except Exception as e:
+        logger.error(f"API request failed", context={"endpoint": endpoint, "error": str(e)})
+        raise ConnectionError(f"Failed to connect to API: {str(e)}")
+
+
+def portfolio_stocks() -> Dict[str, Any]:
     """
     Get user's stock portfolio information
     
     Returns:
         dict: Stock portfolio data
-    """
-    if not barear:
-        return {"error": "Authentication token is not available"}
         
-    conn = http.client.HTTPConnection("api-stg-invmkt.agentmarket.ae")
-    headers = {
-        'Authorization': barear,
-    }
-    conn.request("GET", "/api-gateway/portfolio/stocks", '', headers)
-    res = conn.getresponse()
-    data = res.read()
-    return json.loads(data.decode("utf-8"))
+    Raises:
+        AuthenticationError: If authentication fails
+        ConnectionError: If API request fails
+    """
+    try:
+        return make_authenticated_request("/api-gateway/portfolio/stocks")
+    except (AuthenticationError, ConnectionError) as e:
+        logger.error(f"Failed to get stock portfolio", context={"error": str(e)})
+        return {"error": str(e)}
 
-def portfolio_crypto(barear):
+
+def portfolio_crypto() -> Dict[str, Any]:
     """
     Get user's cryptocurrency portfolio information
     
     Returns:
         dict: Cryptocurrency portfolio data
-    """
-    if not barear:
-        return {"error": "Authentication token is not available"}
         
-    conn = http.client.HTTPConnection(INVESTMENT_MARKET_API_BASE_URL)
-    headers = {
-        'Authorization': barear,
-    }
-    conn.request("GET", "/api-gateway/portfolio/crypto", '', headers)
-    res = conn.getresponse()
-    data = res.read()
-    return json.loads(data.decode("utf-8"))
+    Raises:
+        AuthenticationError: If authentication fails
+        ConnectionError: If API request fails
+    """
+    try:
+        return make_authenticated_request("/api-gateway/portfolio/crypto")
+    except (AuthenticationError, ConnectionError) as e:
+        logger.error(f"Failed to get crypto portfolio", context={"error": str(e)})
+        return {"error": str(e)}
+
+class PlotHelper:
+    """Helper class for common plotting operations"""
+    
+    @staticmethod
+    def get_default_colors(num_colors: int = 10) -> List[str]:
+        """Get a list of default colors for plots"""
+        if num_colors <= 10:
+            return pc.qualitative.Plotly
+        else:
+            return pc.qualitative.Dark24
+            
+    @staticmethod
+    def create_figure_layout(
+        title: str, 
+        width: int, 
+        height: int, 
+        show_legend: bool = True,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Create a standard figure layout with common parameters"""
+        layout = {
+            'title': title,
+            'width': width,
+            'height': height,
+            'showlegend': show_legend,
+            'margin': dict(t=50, b=50, l=50, r=50)
+        }
+        
+        # Add any additional layout parameters
+        if kwargs:
+            layout.update(kwargs)
+            
+        return layout
+
 
 def create_subplots(
     data: Dict[int, Dict[str, Dict[str, Any]]],
@@ -183,8 +281,7 @@ def create_subplots(
     )
     
     # Default colors if not provided
-    default_colors = ['#3D9970', '#FF851B', '#FF4136', '#2ECC40', '#0074D9']
-    colors = colors or default_colors
+    colors = colors or PlotHelper.get_default_colors()
     
     # Add traces for each subplot
     for subplot_idx, traces in data.items():
@@ -195,109 +292,7 @@ def create_subplots(
         grid_row, grid_col = grid_mapping[subplot_idx]
         plot_type = plot_type_map.get(subplot_idx, 'bar')  # Default to bar if not specified
         
-        color_idx = 0
-        for trace_name, trace_data in traces.items():
-            if trace_name in ['xaxis_title', 'yaxis_title']:
-                continue
-                
-            # Common parameters
-            common_params = {
-                'name': trace_name,
-                'text': trace_data.get('text', []),
-                'textposition': 'auto'
-            }
-            
-            # Plot type specific configurations
-            if plot_type == 'bar':
-                fig.add_trace(
-                    go.Bar(
-                        x=trace_data.get('x', []),
-                        y=trace_data.get('y', []),
-                        marker_color=colors[color_idx % len(colors)],
-                        text=trace_data.get('text', []),
-                        textposition='outside',
-                        textfont=dict(size=12),
-                        **{k:v for k,v in common_params.items() if k != 'text' and k != 'textposition'}
-                    ),
-                    row=grid_row,
-                    col=grid_col
-                )
-                
-                # For bar charts, adjust the y-axis range if there are negative values
-                y_values = trace_data.get('y', [])
-                if y_values and all(isinstance(y, (int, float)) for y in y_values):
-                    min_val = min(y_values)
-                    max_val = max(y_values)
-                    if min_val < 0:
-                        # Add padding for negative values
-                        fig.update_yaxes(
-                            range=[min_val * 1.1, max(max_val * 1.1, 0.1)],
-                            row=grid_row, 
-                            col=grid_col
-                        )
-                        
-                # Set up proper grid lines and formatting for bar charts
-                fig.update_xaxes(
-                    showgrid=True,
-                    gridwidth=1,
-                    gridcolor='rgba(211,211,211,0.5)',
-                    row=grid_row,
-                    col=grid_col
-                )
-                
-                fig.update_yaxes(
-                    showgrid=True,
-                    gridwidth=1,
-                    gridcolor='rgba(211,211,211,0.5)',
-                    row=grid_row,
-                    col=grid_col
-                )
-            elif plot_type == 'pie':
-                fig.add_trace(
-                    go.Pie(
-                        labels=trace_data.get('labels', trace_data.get('x', [])),
-                        values=trace_data.get('values', trace_data.get('y', [])),
-                        marker_colors=colors,
-                        **common_params
-                    ),
-                    row=grid_row,
-                    col=grid_col
-                )
-            elif plot_type == 'scatter':
-                fig.add_trace(
-                    go.Scatter(
-                        x=trace_data.get('x', []),
-                        y=trace_data.get('y', []),
-                        mode='markers',
-                        marker=dict(color=colors[color_idx % len(colors)]),
-                        **common_params
-                    ),
-                    row=grid_row,
-                    col=grid_col
-                )
-            elif plot_type == 'line':
-                fig.add_trace(
-                    go.Scatter(
-                        x=trace_data.get('x', []),
-                        y=trace_data.get('y', []),
-                        mode='lines',
-                        marker=dict(color=colors[color_idx % len(colors)]),
-                        **common_params
-                    ),
-                    row=grid_row,
-                    col=grid_col
-                )
-            elif plot_type == 'histogram':
-                fig.add_trace(
-                    go.Histogram(
-                        x=trace_data.get('x', []),
-                        marker_color=colors[color_idx % len(colors)],
-                        **common_params
-                    ),
-                    row=grid_row,
-                    col=grid_col
-                )
-            color_idx += 1
+        _add_traces_to_subplot(fig, traces, plot_type, grid_row, grid_col, colors)
     
     # Update layout
     layout_params = {
@@ -331,6 +326,130 @@ def create_subplots(
             fig.update_yaxes(title_text=traces['yaxis_title'], row=grid_row, col=grid_col)
     
     return fig
+
+
+def _add_traces_to_subplot(
+    fig: go.Figure, 
+    traces: Dict[str, Dict[str, Any]], 
+    plot_type: str, 
+    grid_row: int, 
+    grid_col: int, 
+    colors: List[str]
+) -> None:
+    """
+    Add traces to a subplot based on plot type
+    
+    Args:
+        fig: Figure object to add traces to
+        traces: Dictionary of trace data
+        plot_type: Type of plot ('bar', 'pie', etc.)
+        grid_row: Row position in grid
+        grid_col: Column position in grid
+        colors: List of colors to use
+    """
+    color_idx = 0
+    for trace_name, trace_data in traces.items():
+        if trace_name in ['xaxis_title', 'yaxis_title']:
+            continue
+            
+        # Common parameters
+        common_params = {
+            'name': trace_name,
+            'text': trace_data.get('text', []),
+            'textposition': 'auto'
+        }
+        
+        # Plot type specific configurations
+        if plot_type == 'bar':
+            fig.add_trace(
+                go.Bar(
+                    x=trace_data.get('x', []),
+                    y=trace_data.get('y', []),
+                    marker_color=colors[color_idx % len(colors)],
+                    text=trace_data.get('text', []),
+                    textposition='outside',
+                    textfont=dict(size=12),
+                    **{k:v for k,v in common_params.items() if k != 'text' and k != 'textposition'}
+                ),
+                row=grid_row,
+                col=grid_col
+            )
+            
+            # For bar charts, adjust the y-axis range if there are negative values
+            y_values = trace_data.get('y', [])
+            if y_values and all(isinstance(y, (int, float)) for y in y_values):
+                min_val = min(y_values)
+                max_val = max(y_values)
+                if min_val < 0:
+                    # Add padding for negative values
+                    fig.update_yaxes(
+                        range=[min_val * 1.1, max(max_val * 1.1, 0.1)],
+                        row=grid_row, 
+                        col=grid_col
+                    )
+                    
+            # Set up proper grid lines and formatting for bar charts
+            fig.update_xaxes(
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(211,211,211,0.5)',
+                row=grid_row,
+                col=grid_col
+            )
+            
+            fig.update_yaxes(
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(211,211,211,0.5)',
+                row=grid_row,
+                col=grid_col
+            )
+        elif plot_type == 'pie':
+            fig.add_trace(
+                go.Pie(
+                    labels=trace_data.get('labels', trace_data.get('x', [])),
+                    values=trace_data.get('values', trace_data.get('y', [])),
+                    marker_colors=colors,
+                    **common_params
+                ),
+                row=grid_row,
+                col=grid_col
+            )
+        elif plot_type == 'scatter':
+            fig.add_trace(
+                go.Scatter(
+                    x=trace_data.get('x', []),
+                    y=trace_data.get('y', []),
+                    mode='markers',
+                    marker=dict(color=colors[color_idx % len(colors)]),
+                    **common_params
+                ),
+                row=grid_row,
+                col=grid_col
+            )
+        elif plot_type == 'line':
+            fig.add_trace(
+                go.Scatter(
+                    x=trace_data.get('x', []),
+                    y=trace_data.get('y', []),
+                    mode='lines',
+                    marker=dict(color=colors[color_idx % len(colors)]),
+                    **common_params
+                ),
+                row=grid_row,
+                col=grid_col
+            )
+        elif plot_type == 'histogram':
+            fig.add_trace(
+                go.Histogram(
+                    x=trace_data.get('x', []),
+                    marker_color=colors[color_idx % len(colors)],
+                    **common_params
+                ),
+                row=grid_row,
+                col=grid_col
+            )
+        color_idx += 1
 
 def create_plot(
     data: List[Dict[str, Any]],
@@ -396,23 +515,30 @@ def create_plot(
     config.update(kwargs)
     
     # Create figure based on plot type
-    if plot_type == "pie":
-        return _create_pie_plot(data, title, color_column, color_map, width, height, **config)
-    elif plot_type == "bar":
-        return _create_bar_plot(data, title, x_column, y_column, color_column, width, height, **config)
-    elif plot_type == "scatter":
-        return _create_scatter_plot(data, title, x_column, y_column, color_column, size_column, text_column, width, height, **config)
-    elif plot_type == "line":
-        return _create_line_plot(data, title, x_column, y_column, color_column, width, height, **config)
-    elif plot_type == "histogram":
-        return _create_histogram_plot(data, title, x_column, color_column, width, height, **config)
-    else:
+    plot_creators = {
+        "pie": _create_pie_plot,
+        "bar": _create_bar_plot,
+        "scatter": _create_scatter_plot,
+        "line": _create_line_plot,
+        "histogram": _create_histogram_plot
+    }
+    
+    creator = plot_creators.get(plot_type)
+    if not creator:
         raise ValueError(f"Unsupported plot type: {plot_type}")
+        
+    return creator(data, title, x_column, y_column, color_column, size_column, 
+                  text_column, color_map, width, height, **config)
+
 
 def _create_pie_plot(
     data: List[Dict[str, Any]],
     title: str,
+    x_column: Optional[str],
+    y_column: Optional[str],
     color_column: Optional[str],
+    size_column: Optional[str],
+    text_column: Optional[str],
     color_map: Optional[Dict[str, str]],
     width: int,
     height: int,
@@ -442,7 +568,7 @@ def _create_pie_plot(
         
         # Create color map
         unique_categories = list(categories)
-        colors_list = pc.qualitative.Plotly if len(unique_categories) <= 10 else pc.qualitative.Dark24
+        colors_list = PlotHelper.get_default_colors(len(unique_categories))
         color_map = {category: colors_list[i % len(colors_list)] for i, category in enumerate(unique_categories)}
     
     # Get colors if color column is specified
@@ -463,27 +589,28 @@ def _create_pie_plot(
         hole=kwargs.get('hole_size', 0.5)
     )])
     
-    # Update layout with improved label positioning
-    fig.update_layout(
+    # Create layout
+    layout = PlotHelper.create_figure_layout(
         title=title,
         width=width,
         height=height,
-        showlegend=True,
-        margin=dict(t=50, b=50, l=50, r=50),
-        uniformtext=dict(
-            minsize=12,
-            mode='hide'
-        ),
-        annotations=[
+        show_legend=True,
+        uniformtext=dict(minsize=12, mode='hide')
+    )
+    
+    # Add total value annotation if requested
+    if kwargs.get('show_total_value', True):
+        layout['annotations'] = [
             dict(
                 text=f'Total: {total_value:.2f}',
                 x=0.5,
                 y=0.5,
                 showarrow=False,
                 font=dict(size=16)
-            ) if kwargs.get('show_total_value', True) else None
+            )
         ]
-    )
+    
+    fig.update_layout(**layout)
     
     # Adjust label positions to prevent overlap
     fig.update_traces(
@@ -494,12 +621,16 @@ def _create_pie_plot(
     
     return fig
 
+
 def _create_bar_plot(
     data: List[Dict[str, Any]],
     title: str,
     x_column: str,
     y_column: str,
     color_column: Optional[str],
+    size_column: Optional[str],
+    text_column: Optional[str],
+    color_map: Optional[Dict[str, str]],
     width: int,
     height: int,
     **kwargs
@@ -542,15 +673,18 @@ def _create_bar_plot(
             textposition='auto'
         ))
     
-    fig.update_layout(
+    layout = PlotHelper.create_figure_layout(
         title=title,
         width=width,
         height=height,
-        showlegend=kwargs.get('show_legend', True),
+        show_legend=kwargs.get('show_legend', True),
         barmode='group' if color_column else 'stack'
     )
     
+    fig.update_layout(**layout)
+    
     return fig
+
 
 def _create_scatter_plot(
     data: List[Dict[str, Any]],
@@ -560,6 +694,7 @@ def _create_scatter_plot(
     color_column: Optional[str],
     size_column: Optional[str],
     text_column: Optional[str],
+    color_map: Optional[Dict[str, str]],
     width: int,
     height: int,
     **kwargs
@@ -642,12 +777,14 @@ def _create_scatter_plot(
             )
         ))
     
-    fig.update_layout(
+    layout = PlotHelper.create_figure_layout(
         title=title,
         width=width,
         height=height,
-        showlegend=kwargs.get('show_legend', True)
+        show_legend=kwargs.get('show_legend', True)
     )
+    
+    fig.update_layout(**layout)
     
     return fig
 
@@ -657,6 +794,9 @@ def _create_line_plot(
     x_column: str,
     y_column: str,
     color_column: Optional[str],
+    size_column: Optional[str],
+    text_column: Optional[str],
+    color_map: Optional[Dict[str, str]],
     width: int,
     height: int,
     **kwargs
@@ -701,12 +841,14 @@ def _create_line_plot(
             mode=kwargs.get('mode', 'lines')
         ))
     
-    fig.update_layout(
+    layout = PlotHelper.create_figure_layout(
         title=title,
         width=width,
         height=height,
-        showlegend=kwargs.get('show_legend', True)
+        show_legend=kwargs.get('show_legend', True)
     )
+    
+    fig.update_layout(**layout)
     
     return fig
 
@@ -715,6 +857,9 @@ def _create_histogram_plot(
     title: str,
     x_column: str,
     color_column: Optional[str],
+    size_column: Optional[str],
+    text_column: Optional[str],
+    color_map: Optional[Dict[str, str]],
     width: int,
     height: int,
     **kwargs
@@ -749,59 +894,60 @@ def _create_histogram_plot(
             nbinsx=kwargs.get('nbinsx', 30)
         ))
     
-    fig.update_layout(
+    layout = PlotHelper.create_figure_layout(
         title=title,
         width=width,
         height=height,
-        showlegend=kwargs.get('show_legend', False),
+        show_legend=kwargs.get('show_legend', False),
         barmode='overlay'
     )
     
+    fig.update_layout(**layout)
+    
     return fig
 
-def get_portfolio_data():
+def get_portfolio_data() -> Dict[str, Any]:
     """
     Get user's portfolio information for both stocks and crypto in JSON format.
     
     Returns:
         dict: A JSON-serializable dictionary containing portfolio data
     """
-    # Get stocks data
-    barear = "Bearer " + get_new_token()
-    
     try:
-        stocks_data = portfolio_stocks(barear)
-        stocks_info = stocks_data.get('data').get('holdings', [])
-        crypto_data = portfolio_crypto(barear)
-        crypto_info = crypto_data.get('data').get('holdings', [])
-    except Exception as e:
-        logger.error(f"Error getting crypto data: {str(e)}  details={stocks_data}")
-        crypto_info = [f"{str(e)}"]
-        return stocks_data
-    
-    # Prepare combined portfolio data
-    portfolio_data = {
-        "stocks": stocks_info,
-        "crypto": crypto_info,
-        "timestamp": datetime.now().isoformat(),
-        "summary": {
-            "total_stocks": len(stocks_info),
-            "total_crypto": len(crypto_info)
+        # Get stocks and crypto data
+        stocks_data = portfolio_stocks()
+        crypto_data = portfolio_crypto()
+        
+        # Extract holdings information
+        stocks_info = stocks_data.get('data', {}).get('holdings', [])
+        crypto_info = crypto_data.get('data', {}).get('holdings', [])
+        
+        # Prepare combined portfolio data
+        portfolio_data = {
+            "stocks": stocks_info,
+            "crypto": crypto_info,
+            "timestamp": datetime.now().isoformat(),
+            "summary": {
+                "total_stocks": len(stocks_info),
+                "total_crypto": len(crypto_info)
+            }
         }
-    }
-    
-    print("*******************", "portfolio data", portfolio_data)
-    # Calculate totals
-    total_stock_value = sum(float(stock.get('currentValue', 0)) for stock in stocks_info)
-    total_crypto_value = sum(float(crypto.get('currentValue', 0)) for crypto in crypto_info)
-    total_portfolio_value = total_stock_value + total_crypto_value
-    
-    portfolio_data["summary"]["total_stock_value"] = total_stock_value
-    portfolio_data["summary"]["total_crypto_value"] = total_crypto_value
-    portfolio_data["summary"]["total_portfolio_value"] = total_portfolio_value
-    
-    if total_portfolio_value > 0:
-        portfolio_data["summary"]["stock_percentage"] = (total_stock_value / total_portfolio_value) * 100
-        portfolio_data["summary"]["crypto_percentage"] = (total_crypto_value / total_portfolio_value) * 100
-    
-    return portfolio_data
+        
+        # Calculate totals
+        total_stock_value = sum(float(stock.get('currentValue', 0)) for stock in stocks_info)
+        total_crypto_value = sum(float(crypto.get('currentValue', 0)) for crypto in crypto_info)
+        total_portfolio_value = total_stock_value + total_crypto_value
+        
+        portfolio_data["summary"]["total_stock_value"] = total_stock_value
+        portfolio_data["summary"]["total_crypto_value"] = total_crypto_value
+        portfolio_data["summary"]["total_portfolio_value"] = total_portfolio_value
+        
+        if total_portfolio_value > 0:
+            portfolio_data["summary"]["stock_percentage"] = (total_stock_value / total_portfolio_value) * 100
+            portfolio_data["summary"]["crypto_percentage"] = (total_crypto_value / total_portfolio_value) * 100
+        
+        return portfolio_data
+        
+    except Exception as e:
+        logger.error(f"Error getting portfolio data", context={"error": str(e)})
+        return {"error": str(e), "message": "Failed to retrieve portfolio data"}
