@@ -1,10 +1,3 @@
-from datetime import datetime, timedelta
-from langchain.agents.structured_chat import prompt
-from src.utils.logger_factory import LoggerFactory
-today = datetime.today().date()
-
-
-
 STATICS = {
 "SYSTEM_PROMPT": """You are a helpful assistant that can search the web, retrieve portfolio data, and create visualizations. For queries about the user's investments, holdings, or portfolio, use the portfolio_get_data function. For visualization requests, use the create_plot or create_subplots functions.
 

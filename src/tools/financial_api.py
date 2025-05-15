@@ -1,9 +1,8 @@
 import http.client,os,json,http,logging
 from dotenv import load_dotenv
-from src.statics import WEBSEARCH_MODEL, MODEL_NAME,CRYPTO_LIST, EXCHANGE_LIST, LAST_REFRESH, CACHE_DURATION, COIN_MARKET_CAP_API_BASE_URL ,INVESTMENT_MARKET_API_BASE_URL,historical_quotes_df
-import time,sys,pandas as pd , numpy as np, plotly.graph_objects as go, plotly.colors as pc
+from src.statics import INVESTMENT_MARKET_API_BASE_URL
+import plotly.graph_objects as go, plotly.colors as pc
 from plotly.subplots import make_subplots
-import pandas as pd
 from datetime import datetime
 from src.utils.logger_factory import LoggerFactory
 from typing import Dict, Any, List, Optional
@@ -15,7 +14,8 @@ logger = LoggerFactory.create_logger(service_name="invest-gpt")
 logger.notice("Application starting up, Logger initialized")
 
 
-def get_new_token(): 
+def get_new_token():
+ 
     conn = http.client.HTTPConnection(INVESTMENT_MARKET_API_BASE_URL)
     payload = json.dumps({
         "refreshToken": os.getenv("REFRESH_TOKEN"),
@@ -33,16 +33,16 @@ def get_new_token():
     # Check if the 'data' key exists in the response
     if 'data' not in data_r:
         logger.error(f"Invalid token response: {json.dumps(data_r)}")
-        raise KeyError(f"Expected 'data' key in token response, got: {list(data_r.keys())}")
+        return json.dumps(data_r)
     
     # Check if the 'accessToken' key exists in the data
     if 'accessToken' not in data_r['data']:
         logger.error(f"No accessToken in response data: {json.dumps(data_r['data'])}")
-        raise KeyError(f"Expected 'accessToken' key in data, got: {list(data_r['data'].keys())}")
+        return json.dumps(data_r)
     
     return data_r['data']['accessToken']
 
-def portfolio_stocks():
+def portfolio_stocks(barear):
     """
     Get user's stock portfolio information
     
@@ -56,12 +56,12 @@ def portfolio_stocks():
     headers = {
         'Authorization': barear,
     }
-    conn.request("GET", "/api-gateway/portfolio/stocks", payload, headers)
+    conn.request("GET", "/api-gateway/portfolio/stocks", '', headers)
     res = conn.getresponse()
     data = res.read()
     return json.loads(data.decode("utf-8"))
 
-def portfolio_crypto():
+def portfolio_crypto(barear):
     """
     Get user's cryptocurrency portfolio information
     
@@ -75,7 +75,7 @@ def portfolio_crypto():
     headers = {
         'Authorization': barear,
     }
-    conn.request("GET", "/api-gateway/portfolio/crypto", payload, headers)
+    conn.request("GET", "/api-gateway/portfolio/crypto", '', headers)
     res = conn.getresponse()
     data = res.read()
     return json.loads(data.decode("utf-8"))
@@ -759,7 +759,6 @@ def _create_histogram_plot(
     
     return fig
 
-
 def get_portfolio_data():
     """
     Get user's portfolio information for both stocks and crypto in JSON format.
@@ -768,15 +767,17 @@ def get_portfolio_data():
         dict: A JSON-serializable dictionary containing portfolio data
     """
     # Get stocks data
-    print("*******************", "Getting stocks data")
+    barear = "Bearer " + get_new_token()
+    
     try:
-        stocks_data = portfolio_stocks()
+        stocks_data = portfolio_stocks(barear)
         stocks_info = stocks_data.get('data').get('holdings', [])
-        crypto_data = portfolio_crypto()
+        crypto_data = portfolio_crypto(barear)
         crypto_info = crypto_data.get('data').get('holdings', [])
     except Exception as e:
-        logger.error(f"Error getting crypto data: {str(e)}  details={stocks_data,crypto_data}")
+        logger.error(f"Error getting crypto data: {str(e)}  details={stocks_data}")
         crypto_info = [f"{str(e)}"]
+        return stocks_data
     
     # Prepare combined portfolio data
     portfolio_data = {
