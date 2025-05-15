@@ -1,15 +1,14 @@
-import os
-import datetime
-from typing import Optional
+import os,json,uuid,datetime
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from src.utils.logger_factory import LoggerFactory
 from src.tools import financial_api
-from src.statics import MODEL_NAME
-import json
+from pydantic import BaseModel
+from src.statics import MODEL_NAME, STATICS
 
+
+plot_cache = {}
 load_dotenv()
 app = FastAPI(
     title="CryptoAdvisor API",
@@ -45,7 +44,121 @@ class QueryRequest(BaseModel):
 def portfolio_get_data():
     """Get the user's portfolio data including stocks and cryptocurrency holdings"""
     print("portfolio_get_data called")
-    return financial_api.portfolio_json()
+    return financial_api.get_portfolio_data()
+
+def create_plot(data, plot_type="pie", title="Data Visualization", x_column=None, y_column=None, 
+                color_column=None, size_column=None, text_column=None, color_map=None, 
+                width=800, height=600, **kwargs):
+    """
+    Creates various types of plots with minimal configuration and caches them.
+    
+    Returns:
+        dict: A message indicating success and a plot_id for retrieval
+    """
+    print("create_plot called with:", data, plot_type, title)
+    try:
+        # Call the plotting function from financial_api
+        plot = financial_api.create_plot(
+            data=data, 
+            plot_type=plot_type, 
+            title=title, 
+            x_column=x_column, 
+            y_column=y_column, 
+            color_column=color_column, 
+            size_column=size_column, 
+            text_column=text_column, 
+            color_map=color_map, 
+            width=width, 
+            height=height, 
+            **kwargs
+        )
+        
+        # Generate HTML from the plot
+        import plotly
+        plot_html = plotly.io.to_html(plot, include_plotlyjs='cdn', full_html=False)
+        
+        # Generate a unique ID for the plot
+        plot_id = str(uuid.uuid4())
+        
+        # Store in cache
+        plot_cache[plot_id] = plot_html
+        
+        # Store in financial_api.plot for backward compatibility
+        financial_api.plot = plot_html
+        
+        return {
+            "message": "Plot created successfully",
+            "plot_id": plot_id
+        }
+    except Exception as e:
+        import traceback
+        logger.error(
+            f"Error creating plot",
+            context={"error": str(e), "traceback": traceback.format_exc()}
+        )
+        return {
+            "message": f"Error creating plot: {str(e)}",
+            "error": str(e)
+        }
+
+def create_subplots(data, plot_types, rows=1, cols=2, subplot_titles=None, column_widths=None, 
+                   title="Dynamic Subplots", height=600, width=None, barmode='group', 
+                   colors=None, show_legend=True, annotations=None, layout_custom=None):
+    """
+    Create dynamic subplots with customizable parameters and cache them.
+    
+    Returns:
+        dict: A message indicating success and a plot_id for retrieval
+    """
+    print("create_subplots called with:", data, plot_types, title)
+    
+    # Validate data is not empty
+    if not data or len(data) == 0:
+        error_message = "Error: Empty data provided. Visualization requires actual data to plot."
+        logger.error(error_message)
+        return {
+            "message": error_message,
+            "error": "Empty data object"
+        }
+        
+    try:
+        # Call the subplots function from financial_api
+        fig = financial_api.create_subplots(
+            data=data,
+            plot_types=plot_types,
+            rows=rows,
+            cols=cols,
+            subplot_titles=subplot_titles,
+            column_widths=column_widths,
+            title=title,
+            height=height,
+            width=width,
+            barmode=barmode,
+            colors=colors,
+            show_legend=show_legend,
+            annotations=annotations,
+            layout_custom=layout_custom
+        )
+
+        plot_html = fig.to_html(include_plotlyjs='cdn', full_html=True)
+        plot_id = str(uuid.uuid4())
+        plot_cache[plot_id] = plot_html
+        
+        return {
+            "message": "Subplots created successfully",
+            "plot_id": plot_id
+        }
+    except Exception as e:
+        import traceback
+        logger.error(
+            f"Error creating subplots",
+            context={"error": str(e), "traceback": traceback.format_exc()}
+        )
+        return {
+            "message": f"Error creating subplots: {str(e)}",
+            "error": str(e)
+        }
+
 
 @app.get("/health")
 async def health():
@@ -86,83 +199,122 @@ async def process_query(request: QueryRequest):
                 }
             }
         }
+        # Add plotting tools based on plotting_prompt from statics.py
+        create_plot_tool = {
+            "type": "function",
+            "function": {
+                "name": "create_plot",
+                "description": "Creates a single visualization (pie, bar, scatter, line, histogram) with customizable options."}}
         
+        create_subplots_tool = {
+            "type": "function",
+            "function": {
+                "name": "create_subplots",
+                "description": "Creates multiple visualizations in a single figure for comparison or multi-view analysis"}}
         # Set up available functions
         available_functions = {
-            "portfolio_get_data": portfolio_get_data
+            "portfolio_get_data": portfolio_get_data,
+            "create_plot": create_plot,
+            "create_subplots": create_subplots
         }
         
         # Bind tools
-        llm_with_tools = llm.bind_tools([web_search_tool, portfolio_tool])
+        llm_with_tools = llm.bind_tools([web_search_tool, portfolio_tool, create_plot_tool, create_subplots_tool])
         
-        # Create conversation
+        # Create conversation with system and user messages
         messages = [
-            {"role": "system", "content": "You are a helpful assistant that can search the web and retrieve portfolio data. For queries about the user's investments, holdings, or portfolio, use the portfolio_get_data function."},
+            {"role": "system", "content": STATICS.SYSTEM_PROMPT},
             {"role": "user", "content": request.query}
         ]
         
-        print("*******************", "Processing query:", request.query)
+        logger.info("Processing query", context={"query": request.query})
         
-        # First model call to get response or tool calls
+        # Initialize variables for the tool calling loop
+        max_iterations = 5  # Prevent infinite loops
+        iteration = 0
+        final_output = None
+        
+        #print(f"{'*'*50}\n{'*'*20} LLM CALL  {'*'*20}\n{'*'*50}")
+        logger.info("LLM CALL", context={"messages": messages})
+        #print(messages)
         response = llm_with_tools.invoke(messages)
-        print("*******************", "Initial response:", response)
-        
-        # Check for tool calls
-        if hasattr(response, 'tool_calls') and response.tool_calls:
-            print("*******************", "Found tool calls:", response.tool_calls)
-            tool_outputs = []
+        #print(f"{'*'*50}\n{'*'*20} Response  {'*'*20}\n{'*'*50}")
+        #print(response)
+        logger.info("LLM Response", context={"response": response})
+        plot_id=None
+        while iteration < max_iterations:
+            iteration += 1
+            #print(f"{'*'*50}\n{'*'*20} ITERATION {iteration} {'*'*20}\n{'*'*50}")
+            logger.info("ITERATION", context={"iteration": iteration})
+            if not hasattr(response, 'tool_calls') or not response.tool_calls:
+                logger.info("No tool calls in response, using as final output")
+                final_output = "".join(text['text'] for text in response.content)
+                break
+  
+            messages.append(response)
             
+
+            tool_outputs = []
             for tool_call in response.tool_calls:
-                print("*******************", "Tool call:", tool_call)
-                function_name = tool_call['name']
-                function_args = tool_call['args']
-                print("*******************", "Function name:", function_name)
-                if function_name in available_functions:
-                    function_to_call = available_functions[function_name]
-                    print(f"*******************", f"Calling {function_name} with args {function_args}")
-                    function_response = function_to_call(**function_args)
+                try:
+                    function_name = tool_call['name']
                     
+                    if function_name not in available_functions:
+                        logger.error(f"Invalid function name: {function_name}")
+                        continue
+
+                    try:
+                        function_args = json.loads(tool_call['args']) if isinstance(tool_call['args'], str) else tool_call['args']
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Invalid JSON in function args: {str(e)}")
+                        continue
+           
+                    function_to_call = available_functions[function_name]
+                    function_response = function_to_call(**function_args)
+                    if function_response.get('plot_id'):
+                        plot_id=function_response['plot_id']
+                        function_response="plot has been created and saved in cache, and will be returned with the final response, you should now just explain what plot is all about."
+                        print("\n\nHas plot id**\n\n")
                     tool_outputs.append({
                         "tool_call_id": tool_call['id'],
                         "role": "tool",
                         "name": function_name,
                         "content": json.dumps(function_response)
                     })
-            
-            # Add the assistant's message with the tool calls
-            messages.append(response)
-            
-            # Add all tool outputs
+                    
+                except Exception as e:
+                    logger.error(f"Error processing tool call: {str(e)}")
+
             messages.extend(tool_outputs)
             
-            # Get a second response that incorporates the tool outputs
-            second_response = llm_with_tools.invoke(messages)
-            print("*******************", "Second response:", second_response)
             
-            output = second_response.content
-        else:
-            # If no tool calls, just use the initial response
-            output = response.content
-        
-        print("*******************", "Final output:", output)
             
-        # Handle visualization content
-        if "#~#plot#~#" in output:
-            output = output.replace("#~#plot#~#", financial_api.plot if financial_api.plot else "")
-        if "#~#plot#~#" not in output and financial_api.plot is not None:
-            output = output + financial_api.plot
-        financial_api.plot = None
+            try:
+                #print(f"{'*'*50}\n{'*'*20} LLM CALL {messages} {'*'*20}\n{'*'*50}")
+                logger.info("LLM CALL", context={"messages": messages})
+                response = llm_with_tools.invoke(messages)
+                #print(f"{'*'*50}\n{'*'*20} LLM Response{'*'*20}\n{'*'*50}")
+                #print(response,"\n\n")
+            except Exception as e:
+                logger.error(f"Error getting LLM response: {str(e)}")
+                final_output = f"Error processing your request after {iteration} iterations: {str(e)}"
+                break
         
-        logger.debug(
-            "Returning HTML response",
-            context={"response": output, "content_type": "text/html"}
-        )
+
+        if iteration >= max_iterations and (hasattr(response, 'tool_calls') and response.tool_calls):
+            logger.warning(f"Reached maximum iterations ({max_iterations}), breaking the loop")
+            final_output = f"I've reached the maximum number of tool calls ({max_iterations}). Here's what I've found so far:\n\n{response.content}"
         
+        # Use final output if available, otherwise use the last response content
+        output = final_output if final_output is not None else response.content
+        logger.info("FINAL OUTPUT", context={"output": output})
+        plot_html=plot_cache[plot_id] if plot_id else None
+        plot_cache.pop(plot_id, None)
         return {
             'statusCode': 200,
-            'headers': {'Content-Type': 'text/html'},
-            'body': output
-        }
+            "headers": {"Content-Type": "text/html"},
+            'body': output,
+            "html": plot_html}
     
     except Exception as e:
         import traceback
@@ -172,11 +324,11 @@ async def process_query(request: QueryRequest):
             context={"request_id": request_id, "traceback": traceback_str},
             exception=e
         )
-        raise e
         return {
             'statusCode': 500,
             'headers': {'Content-Type': 'text/html'},
-            'body': f"<p>Error processing your request: {str(e)}</p>"
+            'body': f"<p>Error processing your request: {str(e)}</p>",
+            "html": None
         }
 
 # Run the FastAPI app

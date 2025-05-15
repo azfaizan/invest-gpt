@@ -6,8 +6,7 @@ from plotly.subplots import make_subplots
 import pandas as pd
 from datetime import datetime
 from src.utils.logger_factory import LoggerFactory
-
-plot, historical_quotes_df = None, None
+from typing import Dict, Any, List, Optional
 
 
 # Load environment variables
@@ -42,99 +41,6 @@ def get_new_token():
         raise KeyError(f"Expected 'accessToken' key in data, got: {list(data_r['data'].keys())}")
     
     return data_r['data']['accessToken']
-
-try:
-    if not os.getenv("REFRESH_TOKEN") or not os.getenv("USER_NAME"):
-        logger.warning("REFRESH_TOKEN or USER_NAME environment variables not set, authentication will fail")
-        barear = None
-    else:
-        barear = f"Bearer {get_new_token()}"
-        logger.info("Successfully obtained authentication token")
-except Exception as e:
-    logger.error(f"Failed to set bearer token: {str(e)}")
-    barear = None
-
-payload = ''
-
-def portfolio():
-    """
-    Get user's portfolio information for both stocks and crypto,
-    creates a DataFrame and returns its description.
-    
-    Returns:
-        str: String representation of the portfolio DataFrame's describe() statistics
-    """
-    global historical_quotes_df
-    
-    # Get stocks data
-    try:
-        stocks_data = portfolio_stocks()
-        stocks_info = stocks_data.get('data', {}).get('holdings', [])
-    except Exception as e:
-        stocks_info = []
-    
-    # Get crypto data
-    try:
-        crypto_data = portfolio_crypto()
-        crypto_info = crypto_data.get('data', {}).get('holdings', [])
-    except Exception as e:
-        
-        crypto_info = []
-    
-    # Prepare data for DataFrame
-    portfolio_records = []
-    
-    # Process stocks data
-    for stock in stocks_info:
-        record = {
-            'asset_type': 'stock',
-            'id': stock.get('id', ''),
-            'symbol': stock.get('symbol', ''),
-            'name': stock.get('name', ''),
-            'quantity': float(stock.get('qty', 0)),
-            'average_cost': float(stock.get('averagePrice', 0)),
-            'current_price': float(stock.get('price', 0)),
-            'value': float(stock.get('value', 0)),
-            'invested': float(stock.get('invested', 0)),
-            'current_value': float(stock.get('currentValue', 0)),
-            'profit_loss': float(stock.get('pl', 0)),
-            'profit_loss_percent': float(stock.get('plpc', 0)),
-            'holding_percent_change': float(stock.get('holdingPercentChange', 0)),
-            'logo': stock.get('logo', '')
-        }
-        portfolio_records.append(record)
-    
-    # Process crypto data
-    for crypto in crypto_info:
-        record = {
-            'asset_type': 'crypto',
-            'id': crypto.get('id', ''),
-            'symbol': crypto.get('symbol', ''),
-            'name': crypto.get('name', ''),
-            'quantity': float(crypto.get('qty', 0)),
-            'average_cost': float(crypto.get('averagePrice', 0)),
-            'current_price': float(crypto.get('price', 0)),
-            'value': float(crypto.get('value', 0)),
-            'invested': float(crypto.get('invested', 0)),
-            'current_value': float(crypto.get('currentValue', 0)),
-            'profit_loss': float(crypto.get('pl', 0)),
-            'profit_loss_percent': float(crypto.get('plpc', 0)),
-            'holding_percent_change': float(crypto.get('holdingPercentChange', 0)),
-            'logo': crypto.get('logo', '')
-        }
-        portfolio_records.append(record)
-    
-    # Create DataFrame
-    if not portfolio_records:
-        return "{error:No portfolio data available}"
-    
-    portfolio_df = pd.DataFrame(portfolio_records)
-    
-    # Store in global variable for potential further manipulation
-    historical_quotes_df = portfolio_df
-    
-    # Return describe() as string
-    return portfolio_df.describe(include='all').to_string()
 
 def portfolio_stocks():
     """
@@ -174,512 +80,687 @@ def portfolio_crypto():
     data = res.read()
     return json.loads(data.decode("utf-8"))
 
-def cryptocurrency_historical_quotes(id_list, time_start, time_end, count=1, interval="daily", attributes=["price", "market_cap"], convert="USD"):
+def create_subplots(
+    data: Dict[int, Dict[str, Dict[str, Any]]],
+    plot_types: List[str],
+    rows: int = 1,
+    cols: int = 2,
+    subplot_titles: Optional[List[str]] = None,
+    column_widths: Optional[List[float]] = None,
+    title: str = "Dynamic Subplots",
+    height: int = 600,
+    width: Optional[int] = None,
+    barmode: str = 'group',
+    colors: Optional[List[str]] = None,
+    show_legend: bool = True,
+    annotations: Optional[List[Dict[str, Any]]] = None,
+    layout_custom: Optional[Dict[str, Any]] = None
+) -> go.Figure:
     """
-    Get historical price quotes for one or more cryptocurrencies over a specified time period,
-    storing data in a global DataFrame and returning summarized statistics as a string.
+    Create dynamic subplots with customizable parameters.
     
     Args:
-        id_list (str): Comma-separated list of cryptocurrency IDs from CoinMarketCap
-        time_start (str): Start time in ISO 8601 format (e.g., '2024-04-01')
-        time_end (str): End time in ISO 8601 format (e.g., '2024-04-01')
-        count (int, optional): Number of data points to return. Defaults to 1.
-        interval (str, optional): Time interval between data points ('daily', 'hourly', etc). Defaults to 'daily'.
-        attributes (list, optional): List of attributes to extract (e.g., ['price', 'market_cap']). Defaults to ['price', 'market_cap'].
-        convert (str, optional): Currency to convert quotes to. Defaults to 'USD'.
+        data: Dictionary containing data for plots {subplot_idx: {trace_name: {x: [], y: [], text: []}}}
+        plot_types: List of plot types ('bar', 'pie', 'scatter', etc.) for each subplot
+        rows: Number of rows
+        cols: Number of columns
+        subplot_titles: Titles for each subplot
+        column_widths: List of relative widths for columns
+        title: Main figure title
+        height: Figure height
+        width: Figure width
+        barmode: 'group', 'stack', or 'relative' for bar plots
+        colors: List of colors for traces
+        show_legend: Boolean to show/hide legend
+        annotations: List of annotation dictionaries
+        layout_custom: Dictionary of additional layout parameters
         
     Returns:
-        str: String representation of the DataFrame's describe() statistics
+        Plotly figure object with subplots
     """
-    global historical_quotes_df
-    print(f"DEBUG - cryptocurrency_historical_quotes called with: id_list={id_list}, time_start={time_start}, time_end={time_end}, count={count}, interval={interval}, attributes={attributes}, convert={convert}")
+    # Handle empty data case
+    if not data:
+        # Create an empty figure with default parameters
+        fig = go.Figure()
+        fig.update_layout(title=title, height=height, width=width)
+        return fig
     
-    if not id_list:
-        return "{error:No cryptocurrency IDs provided}"
+    # Get subplot indices from data
+    subplot_indices = sorted(data.keys())
+    max_subplot_idx = max(subplot_indices)
+    
+    # Create a mapping from user indices to grid positions
+    # This allows for arbitrary subplot indices
+    grid_mapping = {}
+    for i, idx in enumerate(subplot_indices):
+        grid_row = i // cols + 1
+        grid_col = i % cols + 1
+        grid_mapping[idx] = (grid_row, grid_col)
+    
+    # Determine actual rows needed based on data
+    actual_rows = (len(subplot_indices) - 1) // cols + 1 if subplot_indices else rows
+    actual_rows = max(rows, actual_rows)  # Ensure at least the specified number of rows
+    
+    # Prepare subplot specs - default to xy type
+    specs = [[{"type": "xy"} for _ in range(cols)] for _ in range(actual_rows)]
+    
+    # Prepare subplot titles list
+    if subplot_titles:
+        # Extend titles if necessary
+        if len(subplot_titles) < len(subplot_indices):
+            subplot_titles.extend([f"Plot {i}" for i in range(len(subplot_titles) + 1, max_subplot_idx + 1)])
+    else:
+        # Create default titles if none provided
+        subplot_titles = [f"Plot {i}" for i in range(1, actual_rows * cols + 1)]
+    
+    # Convert plot types to a dictionary mapped to subplot indices
+    # This ensures we can handle any number of plot types
+    plot_type_map = {}
+    for i, idx in enumerate(subplot_indices):
+        if i < len(plot_types):
+            plot_type_map[idx] = plot_types[i]
+        elif plot_types:
+            # Use the last provided plot type as default
+            plot_type_map[idx] = plot_types[-1]
+        else:
+            # Default to bar if no plot types provided
+            plot_type_map[idx] = "bar"
+    
+    # Update specs for special plot types (like pie charts)
+    for idx, plot_type in plot_type_map.items():
+        if idx in grid_mapping and plot_type == 'pie':
+            grid_row, grid_col = grid_mapping[idx]
+            # Adjust for 0-based indexing in specs
+            specs[grid_row-1][grid_col-1] = {"type": "domain"}
+    
+    # Create subplots
+    fig = make_subplots(
+        rows=actual_rows,
+        cols=cols,
+        specs=specs,
+        column_widths=column_widths,
+        subplot_titles=subplot_titles[:actual_rows * cols]  # Ensure we don't exceed grid size
+    )
+    
+    # Default colors if not provided
+    default_colors = ['#3D9970', '#FF851B', '#FF4136', '#2ECC40', '#0074D9']
+    colors = colors or default_colors
+    
+    # Add traces for each subplot
+    for subplot_idx, traces in data.items():
+        # Skip if subplot index not in grid mapping
+        if subplot_idx not in grid_mapping:
+            continue
+            
+        grid_row, grid_col = grid_mapping[subplot_idx]
+        plot_type = plot_type_map.get(subplot_idx, 'bar')  # Default to bar if not specified
         
-    CMC_API_KEY = os.getenv("CMC_PRO_API_KEY")
-    if not CMC_API_KEY:
-        return "{error:CMC API key not found}"
+        color_idx = 0
+        for trace_name, trace_data in traces.items():
+            if trace_name in ['xaxis_title', 'yaxis_title']:
+                continue
+                
+            # Common parameters
+            common_params = {
+                'name': trace_name,
+                'text': trace_data.get('text', []),
+                'textposition': 'auto'
+            }
+            
+            # Plot type specific configurations
+            if plot_type == 'bar':
+                fig.add_trace(
+                    go.Bar(
+                        x=trace_data.get('x', []),
+                        y=trace_data.get('y', []),
+                        marker_color=colors[color_idx % len(colors)],
+                        text=trace_data.get('text', []),
+                        textposition='outside',
+                        textfont=dict(size=12),
+                        **{k:v for k,v in common_params.items() if k != 'text' and k != 'textposition'}
+                    ),
+                    row=grid_row,
+                    col=grid_col
+                )
+                
+                # For bar charts, adjust the y-axis range if there are negative values
+                y_values = trace_data.get('y', [])
+                if y_values and all(isinstance(y, (int, float)) for y in y_values):
+                    min_val = min(y_values)
+                    max_val = max(y_values)
+                    if min_val < 0:
+                        # Add padding for negative values
+                        fig.update_yaxes(
+                            range=[min_val * 1.1, max(max_val * 1.1, 0.1)],
+                            row=grid_row, 
+                            col=grid_col
+                        )
+                        
+                # Set up proper grid lines and formatting for bar charts
+                fig.update_xaxes(
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='rgba(211,211,211,0.5)',
+                    row=grid_row,
+                    col=grid_col
+                )
+                
+                fig.update_yaxes(
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='rgba(211,211,211,0.5)',
+                    row=grid_row,
+                    col=grid_col
+                )
+            elif plot_type == 'pie':
+                fig.add_trace(
+                    go.Pie(
+                        labels=trace_data.get('labels', trace_data.get('x', [])),
+                        values=trace_data.get('values', trace_data.get('y', [])),
+                        marker_colors=colors,
+                        **common_params
+                    ),
+                    row=grid_row,
+                    col=grid_col
+                )
+            elif plot_type == 'scatter':
+                fig.add_trace(
+                    go.Scatter(
+                        x=trace_data.get('x', []),
+                        y=trace_data.get('y', []),
+                        mode='markers',
+                        marker=dict(color=colors[color_idx % len(colors)]),
+                        **common_params
+                    ),
+                    row=grid_row,
+                    col=grid_col
+                )
+            elif plot_type == 'line':
+                fig.add_trace(
+                    go.Scatter(
+                        x=trace_data.get('x', []),
+                        y=trace_data.get('y', []),
+                        mode='lines',
+                        marker=dict(color=colors[color_idx % len(colors)]),
+                        **common_params
+                    ),
+                    row=grid_row,
+                    col=grid_col
+                )
+            elif plot_type == 'histogram':
+                fig.add_trace(
+                    go.Histogram(
+                        x=trace_data.get('x', []),
+                        marker_color=colors[color_idx % len(colors)],
+                        **common_params
+                    ),
+                    row=grid_row,
+                    col=grid_col
+                )
+            color_idx += 1
     
-    conn = http.client.HTTPSConnection("pro-api.coinmarketcap.com")
-    headers = {
-        'X-CMC_PRO_API_KEY': CMC_API_KEY,
-        'Accept': '*/*'
+    # Update layout
+    layout_params = {
+        'title': title,
+        'height': height,
+        'width': width,
+        'showlegend': show_legend,
+        'annotations': annotations or []
     }
     
-    # Build the API endpoint with query parameters
-    endpoint = f"/v1/cryptocurrency/quotes/historical?id={id_list}&time_start={time_start}&time_end={time_end}&count={count}&interval={interval}&convert={convert}"
-    print(f"DEBUG - API endpoint: {endpoint}")
+    # Set barmode if any bar plots are present
+    for plot_type in plot_type_map.values():
+        if plot_type == 'bar':
+            layout_params['barmode'] = barmode
+            break
     
-    try:
-        conn.request("GET", endpoint, "", headers)
-        res = conn.getresponse()
-        data = res.read()
-        raw_response = data.decode("utf-8")
-        
-        result = json.loads(raw_response)
-        
-        if "data" not in result:
-            return f"Errot"
-        
-        # Initialize lists to store DataFrame data
-        records = []
-        data = result["data"]
-        
-        # Handle response1 (multiple IDs) or response2 (single ID)
-        if isinstance(data, dict) and all(k.isdigit() for k in data.keys()):  # response1: {"1": {"quotes": [...]}, ...}
-            for crypto_id, crypto_info in data.items():
-                for crypto_data in crypto_info.get("quotes", []):
-                    timestamp = crypto_data["timestamp"]
-                    currency_data = crypto_data["quote"].get(convert, {})
-                    record = {"timestamp": timestamp, "crypto_id": crypto_id}
-                    for attr in attributes:
-                        if attr in currency_data:
-                            record[attr] = currency_data[attr]
-                    records.append(record)
-        else:  # response2: {"quotes": [...]}
-            single_id = id_list.split(",")[0] if "," in id_list else id_list
-            for crypto_data in data.get("quotes", []):
-                timestamp = crypto_data["timestamp"]
-                currency_data = crypto_data["quote"].get(convert, {})
-                record = {"timestamp": timestamp, "crypto_id": single_id}
-                for attr in attributes:
-                    if attr in currency_data:
-                        record[attr] = currency_data[attr]
-                records.append(record)
-        
-        if not records:
-            logger.error("No valid data found")
-            return "{error:No valid data found}"
-        
-        # Create DataFrame and assign to global variable
-        historical_quotes_df = pd.DataFrame(records)
-        
-        # Convert timestamp to datetime if present
-        if "timestamp" in historical_quotes_df.columns:
-            historical_quotes_df["timestamp"] = pd.to_datetime(historical_quotes_df["timestamp"])
-        
-        # Return describe() as string
-        return historical_quotes_df.describe(include='all').to_string()
-        
-    except Exception as e:
-        return f"{{error:Error in cryptocurrency_historical_quotes: {str(e)}}}"
-    finally:
-        conn.close()
+    if layout_custom:
+        layout_params.update(layout_custom)
+    
+    fig.update_layout(**layout_params)
+    
+    # Update axes titles if provided in data
+    for subplot_idx, traces in data.items():
+        if subplot_idx not in grid_mapping:
+            continue
+            
+        grid_row, grid_col = grid_mapping[subplot_idx]
+        if 'xaxis_title' in traces:
+            fig.update_xaxes(title_text=traces['xaxis_title'], row=grid_row, col=grid_col)
+        if 'yaxis_title' in traces:
+            fig.update_yaxes(title_text=traces['yaxis_title'], row=grid_row, col=grid_col)
+    
+    return fig
 
-def create_pie_chart(labels_col, values_col, title="Portfolio Distribution", df=None):
+def create_plot(
+    data: List[Dict[str, Any]],
+    plot_type: str = "pie",
+    title: str = "Data Visualization",
+    x_column: Optional[str] = None,
+    y_column: Optional[str] = None,
+    color_column: Optional[str] = None,
+    size_column: Optional[str] = None,
+    text_column: Optional[str] = None,
+    color_map: Optional[Dict[str, str]] = None,
+    width: int = 800,
+    height: int = 600,
+    **kwargs
+) -> go.Figure:
     """
-    Create a pie chart from DataFrame columns.
+    Creates various types of plots with minimal configuration.
     
     Args:
-        labels_col: Column name for labels
-        values_col: Column name for values
-        title: Chart title
-        df: DataFrame containing the data (defaults to historical_quotes_df)
-        
+        data: Input data as list of dictionaries
+        plot_type: Type of plot to create ('pie', 'bar', 'scatter', 'line', 'histogram')
+        title: Title of the plot
+        x_column: Column name for x-axis (for bar, scatter, line, histogram)
+        y_column: Column name for y-axis (for bar, scatter, line)
+        color_column: Column name for color grouping
+        size_column: Column name for marker size (for scatter)
+        text_column: Column name for hover text
+        color_map: Optional mapping of categories to colors
+        width: Width of the plot in pixels
+        height: Height of the plot in pixels
+        **kwargs: Additional plot-specific parameters
+    
     Returns:
-        str: HTML of the plot
+        Plotly figure object
     """
-    global plot, historical_quotes_df
-    df = df or historical_quotes_df
-    if df is None:
-        return "{error:No DataFrame available}"
+    # Default configurations for different plot types
+    default_configs = {
+        "pie": {
+            "hole_size": 0.5,
+            "show_percentage": True,
+            "show_total_value": True
+        },
+        "bar": {
+            "orientation": "v",
+            "show_legend": True
+        },
+        "scatter": {
+            "mode": "markers",
+            "show_legend": True
+        },
+        "line": {
+            "mode": "lines",
+            "show_legend": True
+        },
+        "histogram": {
+            "nbinsx": 30,
+            "show_legend": False
+        }
+    }
+    
+    # Get default config for the plot type
+    config = default_configs.get(plot_type, {})
+    config.update(kwargs)
+    
+    # Create figure based on plot type
+    if plot_type == "pie":
+        return _create_pie_plot(data, title, color_column, color_map, width, height, **config)
+    elif plot_type == "bar":
+        return _create_bar_plot(data, title, x_column, y_column, color_column, width, height, **config)
+    elif plot_type == "scatter":
+        return _create_scatter_plot(data, title, x_column, y_column, color_column, size_column, text_column, width, height, **config)
+    elif plot_type == "line":
+        return _create_line_plot(data, title, x_column, y_column, color_column, width, height, **config)
+    elif plot_type == "histogram":
+        return _create_histogram_plot(data, title, x_column, color_column, width, height, **config)
+    else:
+        raise ValueError(f"Unsupported plot type: {plot_type}")
+
+def _create_pie_plot(
+    data: List[Dict[str, Any]],
+    title: str,
+    color_column: Optional[str],
+    color_map: Optional[Dict[str, str]],
+    width: int,
+    height: int,
+    **kwargs
+) -> go.Figure:
+    """Helper function to create pie plot"""
+    # Sort data by value in descending order
+    data = sorted(data, key=lambda x: x.get('value', 0), reverse=True)
+    
+    # Extract names and values
+    names = [item.get('name', f'Item {i}') for i, item in enumerate(data)]
+    values = [item.get('value', 0) for item in data]
+    
+    # Calculate total value
+    total_value = sum(values)
+    
+    # Create labels with name and percentage
+    labels = [f"{name} ({value/total_value*100:.1f}%)" for name, value in zip(names, values)]
+    
+    # Generate color map if not provided
+    if color_map is None and color_column is not None:
+        # Get unique categories
+        categories = set()
+        for item in data:
+            if color_column in item:
+                categories.add(item[color_column])
         
-    try:
-        # Calculate percentages for hover text
-        total = df[values_col].sum()
-        percentages = (df[values_col] / total * 100).round(2)
-        
-        # Create hover text with value and percentage
-        hover_text = [
-            f"{label}<br>Value: ${value:,.2f}<br>{percent}%"
-            for label, value, percent in zip(df[labels_col], df[values_col], percentages)
+        # Create color map
+        unique_categories = list(categories)
+        colors_list = pc.qualitative.Plotly if len(unique_categories) <= 10 else pc.qualitative.Dark24
+        color_map = {category: colors_list[i % len(colors_list)] for i, category in enumerate(unique_categories)}
+    
+    # Get colors if color column is specified
+    colors = None
+    if color_column:
+        colors = [color_map.get(item.get(color_column, ''), '#CCCCCC') for item in data]
+    
+    # Create pie chart with improved label settings
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=values,
+        textinfo='percent' if kwargs.get('show_percentage', True) else 'none',
+        textposition='outside',
+        textfont=dict(size=12),
+        insidetextorientation='radial',
+        hoverinfo='label+value+percent',
+        marker=dict(colors=colors),
+        hole=kwargs.get('hole_size', 0.5)
+    )])
+    
+    # Update layout with improved label positioning
+    fig.update_layout(
+        title=title,
+        width=width,
+        height=height,
+        showlegend=True,
+        margin=dict(t=50, b=50, l=50, r=50),
+        uniformtext=dict(
+            minsize=12,
+            mode='hide'
+        ),
+        annotations=[
+            dict(
+                text=f'Total: {total_value:.2f}',
+                x=0.5,
+                y=0.5,
+                showarrow=False,
+                font=dict(size=16)
+            ) if kwargs.get('show_total_value', True) else None
         ]
-        
-        # Create the pie chart with enhanced styling
-        fig = go.Figure(data=[go.Pie(
-            labels=df[labels_col],
-            values=df[values_col],
-            hole=.4,  # Slightly larger hole for better aesthetics
-            text=df[labels_col],  # Labels inside the pie
-            textinfo='percent+label',
-            textposition='inside',
-            hoverinfo='text',
-            hovertext=hover_text,
-            marker=dict(
-                colors=pc.qualitative.Pastel,  # Use a pastel color palette
-                line=dict(color='#000000', width=1)  # Add black borders
-            ),
-            pull=[0.1 if i == df[values_col].idxmax() else 0 for i in range(len(df))]  # Pull out the largest slice
-        )])
-        
-        # Update layout with enhanced styling
-        fig.update_layout(
-            title_text=title,
-            title_font=dict(size=24, family='Arial', color='#2c3e50'),
-            width=1200,  # Wider for better visualization
-            height=800,  # Taller for better visualization
-            margin=dict(l=50, r=50, t=100, b=50),
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            ),
-            paper_bgcolor='rgba(0,0,0,0)',  # Transparent background
-            plot_bgcolor='rgba(0,0,0,0)',   # Transparent background
-            annotations=[
-                dict(
-                    text=f"Total: ${total:,.2f}",
-                    x=0.5,
-                    y=0.5,
-                    font_size=20,
-                    showarrow=False
-                )
-            ]
-        )
-        
-        # Update traces with enhanced text styling
-        fig.update_traces(
-            textfont=dict(
-                family='Arial',
-                size=14,
-                color='#2c3e50'
-            ),
-            hovertemplate="%{hovertext}<extra></extra>"
-        )
-        
-        plot = fig.to_html(full_html=False)
-        return "plot is saved in cache"
-    except Exception as e:
-        return f"{{error:Error creating pie chart: {str(e)}}}"
-
-def create_line_chart(x_col, y_cols, title="Price Trend", df=None):
-    """
-    Create a line chart from DataFrame columns.
+    )
     
-    Args:
-        x_col: Column name for x-axis
-        y_cols: List of column names for y-axis
-        title: Chart title
-        df: DataFrame containing the data (defaults to historical_quotes_df)
+    # Adjust label positions to prevent overlap
+    fig.update_traces(
+        textposition='outside',
+        textfont_size=12,
+        pull=[0.1 if i == 0 else 0 for i in range(len(data))]  # Pull out the largest slice slightly
+    )
+    
+    return fig
+
+def _create_bar_plot(
+    data: List[Dict[str, Any]],
+    title: str,
+    x_column: str,
+    y_column: str,
+    color_column: Optional[str],
+    width: int,
+    height: int,
+    **kwargs
+) -> go.Figure:
+    """Helper function to create bar plot"""
+    fig = go.Figure()
+    
+    if color_column:
+        # Group data by color category
+        categories = {}
+        for item in data:
+            category = item.get(color_column, 'Unknown')
+            if category not in categories:
+                categories[category] = []
+            categories[category].append(item)
         
-    Returns:
-        str: HTML of the plot
-    """
-    global plot, historical_quotes_df
-    df = df or historical_quotes_df
-    if df is None:
-        return "{error:No DataFrame available}"
-        
-    try:
-        fig = go.Figure()
-        for y_col in y_cols:
-            fig.add_trace(go.Scatter(
-                x=df[x_col],
-                y=df[y_col],
-                name=y_col,
-                mode='lines'
+        # Add each category as a separate trace
+        for category, items in categories.items():
+            x_values = [item.get(x_column, '') for item in items]
+            y_values = [item.get(y_column, 0) for item in items]
+            text_values = y_values if kwargs.get('show_values', True) else None
+            
+            fig.add_trace(go.Bar(
+                x=x_values,
+                y=y_values,
+                name=category,
+                text=text_values,
+                textposition='auto'
             ))
-        # Set size for line chart with more width for time series
-        fig.update_layout(
-            title_text=title,
-            width=1200,  # Wider for better time series visualization
-            height=600,  # Standard height
-            margin=dict(l=50, r=50, t=50, b=50)
-        )
-        plot = fig.to_html(full_html=False)
-        return "plot is saved in cache"
-    except Exception as e:
-        return f"{{error:Error creating line chart: {str(e)}}}"
-
-def create_bar_chart(x_col, y_col, title="Bar Chart", df=None):
-    """
-    Create a bar chart from DataFrame columns.
+    else:
+        # No categories, add all data as one trace
+        x_values = [item.get(x_column, '') for item in data]
+        y_values = [item.get(y_column, 0) for item in data]
+        text_values = y_values if kwargs.get('show_values', True) else None
+        
+        fig.add_trace(go.Bar(
+            x=x_values,
+            y=y_values,
+            text=text_values,
+            textposition='auto'
+        ))
     
-    Args:
-        x_col: Column name for x-axis
-        y_col: Column name for y-axis
-        title: Chart title
-        df: DataFrame containing the data (defaults to historical_quotes_df)
-        
-    Returns:
-        str: HTML of the plot
-    """
-    global plot, historical_quotes_df
-    df = df or historical_quotes_df
-    if df is None:
-        return "{error:No DataFrame available}"
-        
-    try:
-        fig = go.Figure(data=[go.Bar(
-            x=df[x_col],
-            y=df[y_col]
-        )])
-        # Set size for bar chart with more width for bars
-        fig.update_layout(
-            title_text=title,
-            width=1000,  # Wider for better bar spacing
-            height=600,  # Standard height
-            margin=dict(l=50, r=50, t=50, b=50)
-        )
-        plot = fig.to_html(full_html=False)
-        return "plot is saved in cache"
-    except Exception as e:
-        return f"{{error:Error creating bar chart: {str(e)}}}"
-
-def create_histogram(column, title="Distribution", df=None):
-    """
-    Create a histogram from DataFrame column.
+    fig.update_layout(
+        title=title,
+        width=width,
+        height=height,
+        showlegend=kwargs.get('show_legend', True),
+        barmode='group' if color_column else 'stack'
+    )
     
-    Args:
-        column: Column name for the histogram
-        title: Chart title
-        df: DataFrame containing the data (defaults to historical_quotes_df)
-        
-    Returns:
-        str: HTML of the plot
-    """
-    global plot, historical_quotes_df
-    df = df or historical_quotes_df
-    if df is None:
-        return "{error:No DataFrame available}"
-        
-    try:
-        fig = go.Figure(data=[go.Histogram(
-            x=df[column]
-        )])
-        # Set size for histogram with more width for bins
-        fig.update_layout(
-            title_text=title,
-            width=1000,  # Wider for better bin visualization
-            height=600,  # Standard height
-            margin=dict(l=50, r=50, t=50, b=50)
-        )
-        plot = fig.to_html(full_html=False)
-        return "plot is saved in cache"
-    except Exception as e:
-        return f"{{error:Error creating histogram: {str(e)}}}"
+    return fig
 
-def create_scatter_plot(x_col, y_col, color_col=None, title="Scatter Plot", df=None):
-    """
-    Create a scatter plot from DataFrame columns.
+def _create_scatter_plot(
+    data: List[Dict[str, Any]],
+    title: str,
+    x_column: str,
+    y_column: str,
+    color_column: Optional[str],
+    size_column: Optional[str],
+    text_column: Optional[str],
+    width: int,
+    height: int,
+    **kwargs
+) -> go.Figure:
+    """Helper function to create scatter plot"""
+    fig = go.Figure()
     
-    Args:
-        x_col: Column name for x-axis
-        y_col: Column name for y-axis
-        color_col: Column name for color coding (optional)
-        title: Chart title
-        df: DataFrame containing the data (defaults to historical_quotes_df)
+    if color_column:
+        # Group data by color category
+        categories = {}
+        for item in data:
+            category = item.get(color_column, 'Unknown')
+            if category not in categories:
+                categories[category] = []
+            categories[category].append(item)
         
-    Returns:
-        str: HTML of the plot
-    """
-    global plot, historical_quotes_df
-    df = df or historical_quotes_df
-    if df is None:
-        return "{error:No DataFrame available}"
-        
-    try:
-        fig = go.Figure()
-        if color_col:
+        # Add each category as a separate trace
+        for category, items in categories.items():
+            x_values = [item.get(x_column, 0) for item in items]
+            y_values = [item.get(y_column, 0) for item in items]
+            
+            # Get size values if size column is specified
+            size_values = None
+            if size_column:
+                size_values = [item.get(size_column, 10) for item in items]
+                # Calculate size reference for consistent marker size
+                max_size = max(size_values) if size_values else 0
+                size_ref = 2.0 * max_size / (40.**2) if max_size > 0 else None
+            else:
+                size_values = 10
+                size_ref = None
+            
+            # Get text values if text column is specified
+            text_values = None
+            if text_column:
+                text_values = [item.get(text_column, '') for item in items]
+            
             fig.add_trace(go.Scatter(
-                x=df[x_col],
-                y=df[y_col],
-                mode='markers',
+                x=x_values,
+                y=y_values,
+                mode=kwargs.get('mode', 'markers'),
+                name=category,
+                text=text_values,
                 marker=dict(
-                    color=df[color_col],
-                    colorscale='Viridis',
-                    showscale=True
+                    size=size_values,
+                    sizemode='area',
+                    sizeref=size_ref
                 )
             ))
+    else:
+        # No categories, add all data as one trace
+        x_values = [item.get(x_column, 0) for item in data]
+        y_values = [item.get(y_column, 0) for item in data]
+        
+        # Get size values if size column is specified
+        size_values = None
+        if size_column:
+            size_values = [item.get(size_column, 10) for item in data]
+            # Calculate size reference for consistent marker size
+            max_size = max(size_values) if size_values else 0
+            size_ref = 2.0 * max_size / (40.**2) if max_size > 0 else None
         else:
-            fig.add_trace(go.Scatter(
-                x=df[x_col],
-                y=df[y_col],
-                mode='markers'
-            ))
-        # Set size for scatter plot with more width and less height
-        fig.update_layout(
-            title_text=title,
-            width=1200,  # Wider for better scatter visualization
-            height=500,  # Shorter for scatter plots
-            margin=dict(l=50, r=50, t=50, b=50)
-        )
-        plot = fig.to_html(full_html=False)
-        return "plot is saved in cache"
-    except Exception as e:
-        return f"{{error:Error creating scatter plot: {str(e)}}}"
-
-def create_portfolio_visualization(df=None):
-    """
-    Create a portfolio visualization with two subplots:
-    1. Pie chart showing asset distribution
-    2. Bar chart showing profit/loss by asset
-    
-    Args:
-        df: DataFrame containing the portfolio data (defaults to historical_quotes_df)
+            size_values = 10
+            size_ref = None
         
-    Returns:
-        str: Success or error message in a consistent format
-    """
-    global plot, historical_quotes_df
-    
-    # If no DataFrame is provided, try to load it
-    if df is None and historical_quotes_df is None:
-        result = portfolio()
-        if isinstance(result, str) and "error" in result:
-            return result
-    
-    df = df or historical_quotes_df
-    if df is None:
-        return "{error:No portfolio data available. Please load your portfolio first.}"
+        # Get text values if text column is specified
+        text_values = None
+        if text_column:
+            text_values = [item.get(text_column, '') for item in data]
         
-    try:
-        # Create subplot figure
-        fig = make_subplots(
-            rows=1, 
-            cols=2,
-            specs=[[{"type": "pie"}, {"type": "bar"}]],
-            subplot_titles=("Portfolio Distribution", "Profit/Loss by Asset"),
-            horizontal_spacing=0.15  # Increase spacing between subplots
-        )
-        
-        # Define a better color palette - using a more visually distinct and professional palette
-        colors = [
-            '#2E86AB',  # Steel Blue
-            '#A23B72',  # Deep Rose
-            '#F18F01',  # Orange
-            '#C73E1D',  # Vermillion
-            '#3B1F2B',  # Dark Purple
-            '#44CF6C',  # Emerald
-            '#7209B7',  # Royal Purple
-            '#4361EE',  # Royal Blue
-            '#4CC9F0',  # Sky Blue
-            '#F72585',  # Hot Pink
-            '#7A9E9F',  # Sage
-            '#B5E48C',  # Lime
-            '#FF6B6B',  # Coral
-            '#4A4E69'   # Slate
-        ]
-        
-        # Calculate total portfolio value
-        total_value = df['current_value'].sum()
-        
-        # Sort data by value for better visualization
-        df_sorted = df.sort_values('current_value', ascending=False)
-        
-        # Create hover text for pie chart
-        pie_hover_text = [
-            f"{name}<br>Value: ${value:,.2f}<br>{(value/total_value*100):.1f}%"
-            for name, value in zip(df_sorted['name'], df_sorted['current_value'])
-        ]
-        
-        # Add pie chart trace
-        fig.add_trace(
-            go.Pie(
-                labels=df_sorted['name'],
-                values=df_sorted['current_value'],
-                hole=.5,  # Larger hole for better label spacing
-                textinfo='percent',  # Only show percentage to reduce clutter
-                textposition='outside',  # Move labels outside
-                hoverinfo='text',
-                hovertext=pie_hover_text,
-                marker=dict(
-                    colors=colors[:len(df_sorted)],
-                    line=dict(color='#ffffff', width=2)
-                ),
-                pull=[0.1 if i == 0 else 0 for i in range(len(df_sorted))]  # Pull out largest slice
-            ),
-            row=1, col=1
-        )
-        
-        # Sort data by profit/loss for bar chart
-        df_sorted_pl = df.sort_values('profit_loss', ascending=True)
-        
-        # Create hover text for bar chart
-        bar_hover_text = [
-            f"{name}<br>P/L: ${pl:,.2f}<br>{pl_percent:.1f}%"
-            for name, pl, pl_percent in zip(
-                df_sorted_pl['name'],
-                df_sorted_pl['profit_loss'],
-                df_sorted_pl['profit_loss_percent']
+        fig.add_trace(go.Scatter(
+            x=x_values,
+            y=y_values,
+            mode=kwargs.get('mode', 'markers'),
+            text=text_values,
+            marker=dict(
+                size=size_values,
+                sizemode='area',
+                sizeref=size_ref
             )
-        ]
-        
-        # Add bar chart trace
-        fig.add_trace(
-            go.Bar(
-                x=df_sorted_pl['name'],
-                y=df_sorted_pl['profit_loss'],
-                text=df_sorted_pl['profit_loss_percent'].round(1).astype(str) + '%',
-                textposition='auto',
-                hoverinfo='text',
-                hovertext=bar_hover_text,
-                marker=dict(
-                    color=df_sorted_pl['profit_loss'].apply(
-                        lambda x: '#44CF6C' if x >= 0 else '#FF6B6B'  # Softer green and red
-                    ),
-                    line=dict(color='#ffffff', width=2)
-                )
-            ),
-            row=1, col=2
-        )
-        
-        # Update layout
-        fig.update_layout(
-            title_text=f"Total Portfolio Value: ${total_value:,.2f}",
-            title_font=dict(size=24, family='Arial', color='#2c3e50'),
-            width=1800,  # Even wider for better spacing
-            height=900,  # Taller for better label visibility
-            margin=dict(l=50, r=50, t=120, b=80),  # Increased margins
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            ),
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-           
-        )
-        
-        # Update pie chart subplot
-        fig.update_traces(
-            textfont=dict(
-                family='Arial',
-                size=14,
-                color='#2c3e50'
-            ),
-            hovertemplate="%{hovertext}<extra></extra>",
-            selector=dict(type='pie')
-        )
-        
-        # Update bar chart subplot
-        fig.update_xaxes(
-            title_text="Assets",
-            tickangle=45,
-            tickfont=dict(size=12),
-            row=1, col=2
-        )
-        fig.update_yaxes(
-            title_text="Profit/Loss ($)",
-            title_font=dict(size=14),
-            tickformat="$,.0f",  # Format y-axis labels as currency
-            row=1, col=2,
-            gridcolor='rgba(0,0,0,0.1)'  # Light grid lines
-        )
-        
-        plot = fig.to_html(full_html=False)
-        return "{success:Portfolio visualization created successfully}"
-    except Exception as e:
-        return f"{{error:Error creating portfolio visualization: {str(e)}}}"
+        ))
+    
+    fig.update_layout(
+        title=title,
+        width=width,
+        height=height,
+        showlegend=kwargs.get('show_legend', True)
+    )
+    
+    return fig
 
-def portfolio_json():
+def _create_line_plot(
+    data: List[Dict[str, Any]],
+    title: str,
+    x_column: str,
+    y_column: str,
+    color_column: Optional[str],
+    width: int,
+    height: int,
+    **kwargs
+) -> go.Figure:
+    """Helper function to create line plot"""
+    fig = go.Figure()
+    
+    if color_column:
+        # Group data by color category
+        categories = {}
+        for item in data:
+            category = item.get(color_column, 'Unknown')
+            if category not in categories:
+                categories[category] = []
+            categories[category].append(item)
+        
+        # Add each category as a separate trace
+        for category, items in categories.items():
+            # Sort items by x value for proper line connection
+            sorted_items = sorted(items, key=lambda x: x.get(x_column, 0))
+            
+            x_values = [item.get(x_column, 0) for item in sorted_items]
+            y_values = [item.get(y_column, 0) for item in sorted_items]
+            
+            fig.add_trace(go.Scatter(
+                x=x_values,
+                y=y_values,
+                mode=kwargs.get('mode', 'lines'),
+                name=category
+            ))
+    else:
+        # No categories, add all data as one trace
+        # Sort items by x value for proper line connection
+        sorted_data = sorted(data, key=lambda x: x.get(x_column, 0))
+        
+        x_values = [item.get(x_column, 0) for item in sorted_data]
+        y_values = [item.get(y_column, 0) for item in sorted_data]
+        
+        fig.add_trace(go.Scatter(
+            x=x_values,
+            y=y_values,
+            mode=kwargs.get('mode', 'lines')
+        ))
+    
+    fig.update_layout(
+        title=title,
+        width=width,
+        height=height,
+        showlegend=kwargs.get('show_legend', True)
+    )
+    
+    return fig
+
+def _create_histogram_plot(
+    data: List[Dict[str, Any]],
+    title: str,
+    x_column: str,
+    color_column: Optional[str],
+    width: int,
+    height: int,
+    **kwargs
+) -> go.Figure:
+    """Helper function to create histogram plot"""
+    fig = go.Figure()
+    
+    if color_column:
+        # Group data by color category
+        categories = {}
+        for item in data:
+            category = item.get(color_column, 'Unknown')
+            if category not in categories:
+                categories[category] = []
+            categories[category].append(item)
+        
+        # Add each category as a separate trace
+        for category, items in categories.items():
+            x_values = [item.get(x_column, 0) for item in items]
+            
+            fig.add_trace(go.Histogram(
+                x=x_values,
+                name=category,
+                nbinsx=kwargs.get('nbinsx', 30)
+            ))
+    else:
+        # No categories, add all data as one trace
+        x_values = [item.get(x_column, 0) for item in data]
+        
+        fig.add_trace(go.Histogram(
+            x=x_values,
+            nbinsx=kwargs.get('nbinsx', 30)
+        ))
+    
+    fig.update_layout(
+        title=title,
+        width=width,
+        height=height,
+        showlegend=kwargs.get('show_legend', False),
+        barmode='overlay'
+    )
+    
+    return fig
+
+
+def get_portfolio_data():
     """
     Get user's portfolio information for both stocks and crypto in JSON format.
     
