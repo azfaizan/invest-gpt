@@ -61,7 +61,7 @@ async def is_trading_related_query(query: str) -> bool:
         # Create a lightweight LLM instance for classification
         classifier_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
         
-        classification_prompt = f"""You are a query classifier. Your job is to determine if a user query is related to trading, investments, finance, or markets.
+        classification_prompt = f"""You are a query classifier for InvestmentMarket.ae, the premier investment and trading platform in the UAE. Your job is to determine if a user query is related to trading, investments, finance, or markets.
 
 Respond with ONLY "YES" if the query is about:
 - Trading, stocks, shares, investments
@@ -71,6 +71,7 @@ Respond with ONLY "YES" if the query is about:
 - Financial data, charts, or visualizations
 - Banking, finance, money management
 - Any financial instruments (bonds, ETFs, options, etc.)
+- Any support questions for InvestmentMarket.ae
 
 Respond with ONLY "NO" if the query is about:
 - General knowledge questions
@@ -297,8 +298,7 @@ async def process_query(request: QueryRequest, authenticated: bool = Depends(ver
         
         # Check if query is trading/investment related
         if not await is_trading_related_query(request.query):
-            apology_message = "I apologize, but I'm InvestmentMarket.ae's specialized trading assistant. I can only help with questions related to investments, trading, portfolio management, cryptocurrency, stock markets, and financial analysis. Please ask me something related to these topics, and I'll be happy to show you how InvestmentMarket.ae can help you achieve your investment goals."
-            0
+            apology_message = "I apologize, but I'm InvestmentMarket.ae's specialized trading assistant. I can only help with questions related to investments, trading, portfolio management, cryptocurrency, stock markets, and financial analysis. Please ask me something related to these topics, and I'll be happy to show you how InvestmentMarket.ae can help you achieve your investment goals." 
             logger.info(
                 f"Query filtered as irrelevant",
                 context={
