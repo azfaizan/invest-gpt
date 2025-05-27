@@ -13,6 +13,7 @@ load_dotenv()
 logger = LoggerFactory.create_logger(service_name="invest-gpt")
 logger.notice("Application starting up, Logger initialized")
 
+payload = ''
 
 class AuthenticationError(Exception):
     """Exception raised for authentication issues."""
