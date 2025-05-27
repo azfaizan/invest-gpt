@@ -1,6 +1,7 @@
 import os,json,uuid,datetime
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Depends, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from src.utils.logger_factory import LoggerFactory
 from src.tools import financial_api
@@ -8,13 +9,100 @@ from pydantic import BaseModel
 from src.statics import MODEL_NAME, STATICS
 
 
+# Security scheme for API key authentication
+#security = HTTPBearer()
+security = HTTPBearer(
+    scheme_name="BearerAuth",
+    description="Enter your API key as a Bearer token"
+)
+
+
+def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)):
+    """
+    Verify the API key from the Authorization header.
+    Expected format: Bearer <api_key>
+    """
+    # Get the expected API key from environment variables
+    expected_api_key = os.getenv("API_KEY")
+    
+    if not expected_api_key:
+        logger.critical("API_KEY environment variable not set")
+        raise HTTPException(
+            status_code=500,
+            detail="Server configuration error"
+        )
+    
+    # Extract the token from credentials
+    provided_key = credentials.credentials
+    
+    # Verify the API key
+    if provided_key != expected_api_key:
+        logger.warning(
+            f"Invalid API key attempt",
+            context={"provided_key_prefix": provided_key[:8] + "..." if len(provided_key) > 8 else provided_key}
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key"
+        )
+    
+    logger.info("API key validated successfully")
+    return True
+
+
+async def is_trading_related_query(query: str) -> bool:
+    """
+    Use GPT-4o-mini to determine if a query is related to trading/investment topics.
+    Returns True if relevant, False if irrelevant.
+    """
+    from langchain_openai import ChatOpenAI
+    
+    try:
+        # Create a lightweight LLM instance for classification
+        classifier_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        
+        classification_prompt = f"""You are a query classifier. Your job is to determine if a user query is related to trading, investments, finance, or markets.
+
+Respond with ONLY "YES" if the query is about:
+- Trading, stocks, shares, investments
+- Cryptocurrency, Bitcoin, Ethereum, etc.
+- Portfolio management, financial planning
+- Market analysis, economic trends
+- Financial data, charts, or visualizations
+- Banking, finance, money management
+- Any financial instruments (bonds, ETFs, options, etc.)
+
+Respond with ONLY "NO" if the query is about:
+- General knowledge questions
+- Personal questions unrelated to finance
+- Weather, cooking, entertainment, sports
+- Any non-financial topics
+
+User query: "{query}"
+
+Response (YES or NO):"""
+
+        response = classifier_llm.invoke([{"role": "user", "content": classification_prompt}])
+        
+        # Extract the response and check if it's YES
+        result = response.content.strip().upper()
+        return result == "YES"
+        
+    except Exception as e:
+        # If classification fails, default to allowing the query (fail-safe)
+        logger.error(f"Error in query classification: {str(e)}")
+        return True
+
+
 plot_cache = {}
 load_dotenv()
 app = FastAPI(
-    title="CryptoAdvisor API",
-    description="LangChain-based API for cryptocurrency investment information and visualization",
-    version="1.0.0"
-    )
+    title="InvestmentMarket.ae Trading Assistant API",
+    description="Secure API for InvestmentMarket.ae's AI-powered trading and investment assistant",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -26,7 +114,7 @@ logger = LoggerFactory.create_logger(service_name="invest-gpt")
 logger.notice("Application starting up, Logger initialized")
 
 
-required_vars = ["OPENAI_API_KEY"]
+required_vars = ["OPENAI_API_KEY", "API_KEY"]
 missing_vars = [var for var in required_vars if not os.getenv(var)]
 if missing_vars:
     logger.critical(
@@ -160,6 +248,30 @@ def create_subplots(data, plot_types, rows=1, cols=2, subplot_titles=None, colum
         }
 
 
+@app.get("/")
+async def root():
+    """Public endpoint with basic API information"""
+    return {
+        "service": "InvestmentMarket.ae Trading Assistant API",
+        "version": "1.0.0",
+        "description": "Secure API for AI-powered trading and investment assistance",
+        "authentication": "Required - Use Bearer token in Authorization header",
+        "endpoints": {
+            "health": "GET /health - Service health check (authenticated)",
+            "query": "POST /query - Process trading queries (authenticated)",
+            "docs": "GET /docs - API documentation"
+        }
+    }
+
+@app.get("/auth/test")
+async def test_auth(authenticated: bool = Depends(verify_api_key)):
+    """Test endpoint to verify API key authentication"""
+    return {
+        "status": authenticated,
+        "message": "API key is valid",
+        "service": "InvestmentMarket.ae Trading Assistant"
+    }
+
 @app.get("/health")
 async def health():
     """Process a query and return a response"""
@@ -167,7 +279,7 @@ async def health():
     return str(current_time)
         
 @app.post("/query")
-async def process_query(request: QueryRequest):
+async def process_query(request: QueryRequest, authenticated: bool = Depends(verify_api_key)):
     """Process a query and return a response"""
     from langchain_openai import ChatOpenAI
     
@@ -182,6 +294,26 @@ async def process_query(request: QueryRequest):
                 "query": request.query
             }
         )
+        
+        # Check if query is trading/investment related
+        if not await is_trading_related_query(request.query):
+            apology_message = "I apologize, but I'm InvestmentMarket.ae's specialized trading assistant. I can only help with questions related to investments, trading, portfolio management, cryptocurrency, stock markets, and financial analysis. Please ask me something related to these topics, and I'll be happy to show you how InvestmentMarket.ae can help you achieve your investment goals."
+            0
+            logger.info(
+                f"Query filtered as irrelevant",
+                context={
+                    "request_id": request_id,
+                    "query": request.query,
+                    "response": "apology_message"
+                }
+            )
+            
+            return {
+                'statusCode': 200,
+                "headers": {"Content-Type": "text/html"},
+                'body': apology_message,
+                "html": None
+            }
         
         # Create LLM instance
         llm = ChatOpenAI(model=MODEL_NAME, temperature=0)
