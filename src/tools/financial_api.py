@@ -252,6 +252,28 @@ def create_subplots(
         # Create default titles if none provided
         subplot_titles = [f"Plot {i}" for i in range(1, actual_rows * cols + 1)]
     
+    # Validate and fix column_widths
+    if column_widths:
+        if len(column_widths) != cols:
+            # If column_widths length doesn't match cols, adjust it
+            if len(column_widths) < cols:
+                # Extend with equal widths for missing columns
+                remaining_width = 1.0 - sum(column_widths)
+                missing_cols = cols - len(column_widths)
+                if missing_cols > 0:
+                    width_per_missing = remaining_width / missing_cols if remaining_width > 0 else 1.0 / cols
+                    column_widths.extend([width_per_missing] * missing_cols)
+            else:
+                # Truncate to match number of columns
+                column_widths = column_widths[:cols]
+        
+        # Normalize column_widths to sum to 1.0
+        total_width = sum(column_widths)
+        if total_width > 0:
+            column_widths = [w / total_width for w in column_widths]
+        else:
+            column_widths = None  # Use default equal widths
+    
     # Convert plot types to a dictionary mapped to subplot indices
     # This ensures we can handle any number of plot types
     plot_type_map = {}
