@@ -1,4 +1,5 @@
 import os,json,datetime
+from typing import Any, Dict, List
 import uuid
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends
@@ -44,8 +45,6 @@ if missing_vars:
         context={"missing_vars": missing_vars}
     )
     raise EnvironmentError(f"Missing required environment variables: {', '.join(missing_vars)}")
-
-
 
 
 def create_plot(data, plot_type="pie", title="Data Visualization", x_column=None, y_column=None, 
@@ -154,8 +153,6 @@ def create_subplots(data, plot_types, rows=1, cols=2, subplot_titles=None, colum
 
 
 
-
-
 @app.get("/")
 async def root():
     """Public endpoint with basic API information"""
@@ -191,8 +188,9 @@ async def health():
 async def process_query(request: QueryRequest, authenticated: bool = Depends(verify_api_key)) -> APIResponse:
     """Process a query and return a response"""
     
-    
-    request_id = str(datetime.datetime.now().timestamp())
+    # Start timing the request
+    start_time = datetime.datetime.now()
+    request_id = str(start_time.timestamp())
     
     try:
         logger.info(
@@ -311,6 +309,20 @@ async def process_query(request: QueryRequest, authenticated: bool = Depends(ver
         logger.info("FINAL OUTPUT", context={"output": final_response})
         plot_html=  plot_cache[plot_id] if plot_id else None
         plot_cache.pop(plot_id, None)
+        
+        # Calculate and log the total processing time
+        end_time = datetime.datetime.now()
+        processing_duration = (end_time - start_time).total_seconds()
+        
+        logger.info(
+            f"Trading query processed successfully - Start: {start_time.isoformat()} | End: {end_time.isoformat()} | Total execution time: {processing_duration:.3f} seconds",
+            context={
+                "request_id": request_id,
+                "processing_duration_seconds": processing_duration,
+                "response_type": "trading_response"
+            }
+        )
+        
         return APIResponse(
             statusCode=200,
             headers={"Content-Type": "text/html"},
@@ -336,13 +348,13 @@ async def process_query(request: QueryRequest, authenticated: bool = Depends(ver
             html=None
         )
 
-def response_format(simple_text: str) -> ResponseBody:
+def response_format(simple_text: str) -> List[Dict[str, Any]]:
     """Create a standardized response body using Pydantic model"""
-    return {
+    return [{
         "type":"text",
-        "text":str(simple_text),
+        "text":simple_text,
         "annotations":[]
-    }
+    }]
 
 # Run the FastAPI app
 if __name__ == "__main__":

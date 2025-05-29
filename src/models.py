@@ -15,5 +15,5 @@ class APIResponse(BaseModel):
     """Model for complete API response structure"""
     statusCode: int
     headers: Dict[str, str]
-    body: Dict[str, Any]
+    body: List[Dict[str, Any]] = []
     html: Optional[str] = None
