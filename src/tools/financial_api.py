@@ -180,7 +180,7 @@ class PlotHelper:
 
 
 def create_subplots(
-    data: Dict[int, Dict[str, Dict[str, Any]]],
+    data: Dict[Union[int, str], Dict[str, Dict[str, Any]]],
     plot_types: List[str],
     rows: int = 1,
     cols: int = 2,
@@ -217,43 +217,96 @@ def create_subplots(
     Returns:
         Plotly figure object with subplots
     """
+    print(f"🔍 create_subplots called with:")
+    print(f"   data: {data}")
+    print(f"   data type: {type(data)}")
+    print(f"   data keys: {list(data.keys()) if data else None}")
+    print(f"   plot_types: {plot_types}")
+    print(f"   title: {title}")
+    
     # Handle empty data case
     if not data:
-        # Create an empty figure with default parameters
+        print("❌ Empty data provided, creating empty figure")
         fig = go.Figure()
         fig.update_layout(title=title, height=height, width=width)
         return fig
     
-    # Get subplot indices from data
-    subplot_indices = sorted(data.keys())
-    max_subplot_idx = max(subplot_indices)
+    print(f"✅ Data validation passed, processing {len(data)} subplots")
+    
+    # Convert string keys to integers and sort
+    try:
+        print("🔄 Converting string keys to integers...")
+        # Convert keys to integers, handling both string and int keys
+        converted_data = {}
+        for key, value in data.items():
+            print(f"   Processing key: {key} (type: {type(key)})")
+            if isinstance(key, str):
+                try:
+                    int_key = int(key)
+                    converted_data[int_key] = value
+                    print(f"   ✅ Converted '{key}' to {int_key}")
+                except ValueError:
+                    # If string key can't be converted to int, use hash or enumerate
+                    print(f"   ⚠️ Non-numeric string key '{key}' found, using hash-based conversion")
+                    int_key = hash(key) % 1000  # Use a reasonable range
+                    converted_data[int_key] = value
+                    print(f"   ✅ Hash-converted '{key}' to {int_key}")
+            else:
+                converted_data[key] = value
+                print(f"   ✅ Integer key {key} kept as-is")
+        
+        data = converted_data
+        subplot_indices = sorted(data.keys())
+        max_subplot_idx = max(subplot_indices)
+        
+        print(f"✅ Key conversion successful:")
+        print(f"   subplot_indices: {subplot_indices}")
+        print(f"   max_subplot_idx: {max_subplot_idx}")
+        
+    except Exception as e:
+        print(f"❌ Error processing data keys: {str(e)}")
+        # Fallback: create sequential integer keys
+        subplot_indices = list(range(1, len(data) + 1))
+        max_subplot_idx = len(data)
+        converted_data = {}
+        for i, (key, value) in enumerate(data.items(), 1):
+            converted_data[i] = value
+        data = converted_data
+        print(f"🔄 Fallback: created sequential keys {subplot_indices}")
     
     # Create a mapping from user indices to grid positions
-    # This allows for arbitrary subplot indices
+    print("🗺️ Creating grid mapping...")
     grid_mapping = {}
     for i, idx in enumerate(subplot_indices):
         grid_row = i // cols + 1
         grid_col = i % cols + 1
         grid_mapping[idx] = (grid_row, grid_col)
+        print(f"   subplot {idx} -> grid position ({grid_row}, {grid_col})")
     
     # Determine actual rows needed based on data
     actual_rows = (len(subplot_indices) - 1) // cols + 1 if subplot_indices else rows
     actual_rows = max(rows, actual_rows)  # Ensure at least the specified number of rows
+    print(f"📐 Grid dimensions: {actual_rows} rows x {cols} cols")
     
     # Prepare subplot specs - default to xy type
     specs = [[{"type": "xy"} for _ in range(cols)] for _ in range(actual_rows)]
+    print(f"📋 Created specs: {specs}")
     
     # Prepare subplot titles list
     if subplot_titles:
+        print(f"📝 Using provided subplot titles: {subplot_titles}")
         # Extend titles if necessary
         if len(subplot_titles) < len(subplot_indices):
             subplot_titles.extend([f"Plot {i}" for i in range(len(subplot_titles) + 1, max_subplot_idx + 1)])
+            print(f"📝 Extended titles to: {subplot_titles}")
     else:
         # Create default titles if none provided
         subplot_titles = [f"Plot {i}" for i in range(1, actual_rows * cols + 1)]
+        print(f"📝 Created default titles: {subplot_titles}")
     
     # Validate and fix column_widths
     if column_widths:
+        print(f"📏 Processing column widths: {column_widths}")
         if len(column_widths) != cols:
             # If column_widths length doesn't match cols, adjust it
             if len(column_widths) < cols:
@@ -266,16 +319,17 @@ def create_subplots(
             else:
                 # Truncate to match number of columns
                 column_widths = column_widths[:cols]
-        
-        # Normalize column_widths to sum to 1.0
-        total_width = sum(column_widths)
-        if total_width > 0:
-            column_widths = [w / total_width for w in column_widths]
-        else:
-            column_widths = None  # Use default equal widths
+            
+            # Normalize column_widths to sum to 1.0
+            total_width = sum(column_widths)
+            if total_width > 0:
+                column_widths = [w / total_width for w in column_widths]
+            else:
+                column_widths = None  # Use default equal widths
+        print(f"📏 Final column widths: {column_widths}")
     
     # Convert plot types to a dictionary mapped to subplot indices
-    # This ensures we can handle any number of plot types
+    print("🎨 Mapping plot types to subplots...")
     plot_type_map = {}
     for i, idx in enumerate(subplot_indices):
         if i < len(plot_types):
@@ -286,38 +340,59 @@ def create_subplots(
         else:
             # Default to bar if no plot types provided
             plot_type_map[idx] = "bar"
+        print(f"   subplot {idx} -> plot type: {plot_type_map[idx]}")
     
     # Update specs for special plot types (like pie charts)
+    print("🥧 Updating specs for special plot types...")
     for idx, plot_type in plot_type_map.items():
         if idx in grid_mapping and plot_type == 'pie':
             grid_row, grid_col = grid_mapping[idx]
             # Adjust for 0-based indexing in specs
             specs[grid_row-1][grid_col-1] = {"type": "domain"}
+            print(f"   Updated spec for pie chart at subplot {idx}")
     
     # Create subplots
-    fig = make_subplots(
-        rows=actual_rows,
-        cols=cols,
-        specs=specs,
-        column_widths=column_widths,
-        subplot_titles=subplot_titles[:actual_rows * cols]  # Ensure we don't exceed grid size
-    )
+    print("🏗️ Creating subplots...")
+    try:
+        fig = make_subplots(
+            rows=actual_rows,
+            cols=cols,
+            specs=specs,
+            column_widths=column_widths,
+            subplot_titles=subplot_titles[:actual_rows * cols]  # Ensure we don't exceed grid size
+        )
+        print("✅ Subplots structure created successfully")
+    except Exception as e:
+        print(f"❌ Error creating subplots structure: {str(e)}")
+        raise
     
     # Default colors if not provided
     colors = colors or PlotHelper.get_default_colors()
+    print(f"🎨 Using colors: {colors[:5]}..." if len(colors) > 5 else f"🎨 Using colors: {colors}")
     
     # Add traces for each subplot
+    print("📊 Adding traces to subplots...")
     for subplot_idx, traces in data.items():
+        print(f"   Processing subplot {subplot_idx} with traces: {list(traces.keys())}")
+        
         # Skip if subplot index not in grid mapping
         if subplot_idx not in grid_mapping:
+            print(f"   ⚠️ Skipping subplot {subplot_idx} - not in grid mapping")
             continue
             
         grid_row, grid_col = grid_mapping[subplot_idx]
         plot_type = plot_type_map.get(subplot_idx, 'bar')  # Default to bar if not specified
+        print(f"   Adding {plot_type} traces to grid position ({grid_row}, {grid_col})")
         
-        _add_traces_to_subplot(fig, traces, plot_type, grid_row, grid_col, colors)
+        try:
+            _add_traces_to_subplot(fig, traces, plot_type, grid_row, grid_col, colors)
+            print(f"   ✅ Successfully added traces for subplot {subplot_idx}")
+        except Exception as e:
+            print(f"   ❌ Error adding traces for subplot {subplot_idx}: {str(e)}")
+            raise
     
     # Update layout
+    print("🎨 Updating layout...")
     layout_params = {
         'title': title,
         'height': height,
@@ -330,14 +405,22 @@ def create_subplots(
     for plot_type in plot_type_map.values():
         if plot_type == 'bar':
             layout_params['barmode'] = barmode
+            print(f"   Set barmode to: {barmode}")
             break
     
     if layout_custom:
         layout_params.update(layout_custom)
+        print(f"   Applied custom layout: {layout_custom}")
     
-    fig.update_layout(**layout_params)
+    try:
+        fig.update_layout(**layout_params)
+        print("✅ Layout updated successfully")
+    except Exception as e:
+        print(f"❌ Error updating layout: {str(e)}")
+        raise
     
     # Update axes titles if provided in data
+    print("📝 Updating axes titles...")
     for subplot_idx, traces in data.items():
         if subplot_idx not in grid_mapping:
             continue
@@ -345,11 +428,13 @@ def create_subplots(
         grid_row, grid_col = grid_mapping[subplot_idx]
         if 'xaxis_title' in traces:
             fig.update_xaxes(title_text=traces['xaxis_title'], row=grid_row, col=grid_col)
+            print(f"   Set x-axis title for subplot {subplot_idx}: {traces['xaxis_title']}")
         if 'yaxis_title' in traces:
             fig.update_yaxes(title_text=traces['yaxis_title'], row=grid_row, col=grid_col)
+            print(f"   Set y-axis title for subplot {subplot_idx}: {traces['yaxis_title']}")
     
+    print("🎉 create_subplots completed successfully!")
     return fig
-
 
 def _add_traces_to_subplot(
     fig: go.Figure, 
@@ -370,29 +455,35 @@ def _add_traces_to_subplot(
         grid_col: Column position in grid
         colors: List of colors to use
     """
+    print(f"    🔧 _add_traces_to_subplot called:")
+    print(f"       plot_type: {plot_type}")
+    print(f"       grid_row: {grid_row}, grid_col: {grid_col}")
+    print(f"       traces: {list(traces.keys())}")
+    print(f"       colors available: {len(colors)}")
+    
     color_idx = 0
     for trace_name, trace_data in traces.items():
+        print(f"       Processing trace: {trace_name}")
+        print(f"       Trace data keys: {list(trace_data.keys())}")
+        print(f"       x data: {trace_data.get('x', [])}")
+        print(f"       y data: {trace_data.get('y', [])}")
+        
         if trace_name in ['xaxis_title', 'yaxis_title']:
+            print(f"       Skipping axis title: {trace_name}")
             continue
-            
-        # Common parameters
-        common_params = {
-            'name': trace_name,
-            'text': trace_data.get('text', []),
-            'textposition': 'auto'
-        }
         
         # Plot type specific configurations
         if plot_type == 'bar':
+            print(f"       Creating bar trace...")
             fig.add_trace(
                 go.Bar(
                     x=trace_data.get('x', []),
                     y=trace_data.get('y', []),
+                    name=trace_name,
                     marker_color=colors[color_idx % len(colors)],
                     text=trace_data.get('text', []),
                     textposition='outside',
-                    textfont=dict(size=12),
-                    **{k:v for k,v in common_params.items() if k != 'text' and k != 'textposition'}
+                    textfont=dict(size=12)
                 ),
                 row=grid_row,
                 col=grid_col
@@ -410,6 +501,7 @@ def _add_traces_to_subplot(
                         row=grid_row, 
                         col=grid_col
                     )
+                    print(f"       Updated y-axis range for negative values")
                     
             # Set up proper grid lines and formatting for bar charts
             fig.update_xaxes(
@@ -427,52 +519,75 @@ def _add_traces_to_subplot(
                 row=grid_row,
                 col=grid_col
             )
+            print(f"       ✅ Bar trace added successfully")
+            
         elif plot_type == 'pie':
+            print(f"       Creating pie trace...")
             fig.add_trace(
                 go.Pie(
                     labels=trace_data.get('labels', trace_data.get('x', [])),
                     values=trace_data.get('values', trace_data.get('y', [])),
+                    name=trace_name,
                     marker_colors=colors,
-                    **common_params
+                    text=trace_data.get('text', [])
                 ),
                 row=grid_row,
                 col=grid_col
             )
+            print(f"       ✅ Pie trace added successfully")
+            
         elif plot_type == 'scatter':
+            print(f"       Creating scatter trace...")
             fig.add_trace(
                 go.Scatter(
                     x=trace_data.get('x', []),
                     y=trace_data.get('y', []),
                     mode='markers',
+                    name=trace_name,
                     marker=dict(color=colors[color_idx % len(colors)]),
-                    **common_params
+                    text=trace_data.get('text', [])
                 ),
                 row=grid_row,
                 col=grid_col
             )
+            print(f"       ✅ Scatter trace added successfully")
+            
         elif plot_type == 'line':
+            print(f"       Creating line trace...")
             fig.add_trace(
                 go.Scatter(
                     x=trace_data.get('x', []),
                     y=trace_data.get('y', []),
                     mode='lines',
-                    marker=dict(color=colors[color_idx % len(colors)]),
-                    **common_params
+                    name=trace_name,
+                    line=dict(color=colors[color_idx % len(colors)]),
+                    text=trace_data.get('text', [])
                 ),
                 row=grid_row,
                 col=grid_col
             )
+            print(f"       ✅ Line trace added successfully")
+            
         elif plot_type == 'histogram':
+            print(f"       Creating histogram trace...")
             fig.add_trace(
                 go.Histogram(
                     x=trace_data.get('x', []),
+                    name=trace_name,
                     marker_color=colors[color_idx % len(colors)],
-                    **common_params
+                    text=trace_data.get('text', [])
                 ),
                 row=grid_row,
                 col=grid_col
             )
+            print(f"       ✅ Histogram trace added successfully")
+        else:
+            print(f"       ❌ Unknown plot type: {plot_type}")
+            
         color_idx += 1
+        print(f"       Color index incremented to: {color_idx}")
+    
+    print(f"    ✅ _add_traces_to_subplot completed for {plot_type} at ({grid_row}, {grid_col})")
 
 def create_plot(
     data: List[Dict[str, Any]],
