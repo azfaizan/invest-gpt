@@ -73,32 +73,6 @@ def create_plot(data, plot_type="pie", title="Data Visualization", x_column=None
             height=height, 
             **kwargs
         )
-        plot.update_layout(
-        # Update title font size (keeping existing text)
-        title=dict(
-            font=dict(size=36, family="Arial", color="black"),  # Larger title font
-            x=0.5, xanchor='center'
-        ),
-        # Update x-axis font sizes (not changing the label text)
-        xaxis=dict(
-            title=dict(
-                font=dict(size=28, family="Arial", color="black")  # Larger x-axis title font
-            ),
-            tickfont=dict(size=24, family="Arial", color="black"),  # Larger x-axis tick font
-            title_standoff=30  # More space between title and ticks
-        ),
-        # Update y-axis font sizes (not changing the label text)
-        yaxis=dict(
-            title=dict(
-                font=dict(size=28, family="Arial", color="black")  # Larger y-axis title font
-            ),
-            tickfont=dict(size=24, family="Arial", color="black"),  # Larger y-axis tick font
-            title_standoff=30
-        ),
-        # Global font fallback and figure size for better mobile visibility
-        font=dict(size=20, family="Arial", color="black"),
-        )
-        
         plot_html = plotly.io.to_html(plot, include_plotlyjs='cdn', full_html=False)
         plot_id = str(uuid.uuid4())
         plot_cache[plot_id] = plot_html
