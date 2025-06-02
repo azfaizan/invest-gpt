@@ -73,7 +73,31 @@ def create_plot(data, plot_type="pie", title="Data Visualization", x_column=None
             height=height, 
             **kwargs
         )
-        
+        plot.update_layout(
+        # Update title font size (keeping existing text)
+        title=dict(
+            font=dict(size=36, family="Arial", color="black"),  # Larger title font
+            x=0.5, xanchor='center'
+        ),
+        # Update x-axis font sizes (not changing the label text)
+        xaxis=dict(
+            title=dict(
+                font=dict(size=28, family="Arial", color="black")  # Larger x-axis title font
+            ),
+            tickfont=dict(size=24, family="Arial", color="black"),  # Larger x-axis tick font
+            title_standoff=30  # More space between title and ticks
+        ),
+        # Update y-axis font sizes (not changing the label text)
+        yaxis=dict(
+            title=dict(
+                font=dict(size=28, family="Arial", color="black")  # Larger y-axis title font
+            ),
+            tickfont=dict(size=24, family="Arial", color="black"),  # Larger y-axis tick font
+            title_standoff=30
+        ),
+        # Global font fallback and figure size for better mobile visibility
+        font=dict(size=20, family="Arial", color="black"),
+        )
         
         plot_html = plotly.io.to_html(plot, include_plotlyjs='cdn', full_html=False)
         plot_id = str(uuid.uuid4())
@@ -113,7 +137,6 @@ def create_subplots(data, plot_types, rows=1, cols=2, subplot_titles=None, colum
             "message": error_message,
             "error": "Empty data object"
         }
-        
     try:
         fig = financial_api.create_subplots(
             data=data,
@@ -131,7 +154,6 @@ def create_subplots(data, plot_types, rows=1, cols=2, subplot_titles=None, colum
             annotations=annotations,
             layout_custom=layout_custom
         )
-# 
         plot_html = fig.to_html(include_plotlyjs='cdn', full_html=True)
         plot_id = str(uuid.uuid4())
         plot_cache[plot_id] = plot_html
@@ -276,7 +298,7 @@ async def process_query(request: QueryRequest, authenticated: bool = Depends(ver
                         "tool_call_id": tool_call['id'],
                         "role": "tool",
                         "name": function_name,
-                        "content": json.dumps(function_response)
+                        "content": json.dumps(function_response)#h
                     })
                     
                 except Exception as e:
@@ -361,3 +383,4 @@ if __name__ == "__main__":
     import uvicorn
     logger.notice("Starting uvicorn server on port 8000")
     uvicorn.run(app, host="0.0.0.0", port=8000) 
+
