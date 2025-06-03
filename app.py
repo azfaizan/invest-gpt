@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends
 from fastapi.security import HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from src.utils.logger_factory import LoggerFactory
-from src.statics import MODEL_NAME, STATICS
+from src.statics import MODEL_NAME, STATICS, HTML_TEMPLATE
 from src.models import ResponseBody, APIResponse,QueryRequest
 from src.utils.api_helpers import initialize_chat_model,verify_api_key, is_trading_related_query, clean_external_references
 from src.utils import api_helpers
@@ -73,8 +73,9 @@ def create_plot(data, plot_type="pie", title="Data Visualization", x_column=None
             height=height, 
             **kwargs
         )
-        plot_html = plotly.io.to_html(plot, include_plotlyjs='cdn', full_html=False)
+        plot_html = plotly.io.to_html(plot, include_plotlyjs='cdn',config={'responsive': True, 'scrollZoom': False})
         plot_id = str(uuid.uuid4())
+        plot_html = HTML_TEMPLATE.replace('{plotly_html}', plot_html)
         plot_cache[plot_id] = plot_html
         financial_api.plot = plot_html
         return {
@@ -128,8 +129,9 @@ def create_subplots(data, plot_types, rows=1, cols=2, subplot_titles=None, colum
             annotations=annotations,
             layout_custom=layout_custom
         )
-        plot_html = fig.to_html(include_plotlyjs='cdn', full_html=True)
+        plot_html = fig.to_html(include_plotlyjs='cdn',config={'responsive': True, 'scrollZoom': False})
         plot_id = str(uuid.uuid4())
+        plot_html = HTML_TEMPLATE.replace('{plotly_html}', plot_html)
         plot_cache[plot_id] = plot_html
         
         return {

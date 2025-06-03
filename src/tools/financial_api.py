@@ -169,7 +169,8 @@ class PlotHelper:
             'width': width,
             'height': height,
             'showlegend': show_legend,
-            'margin': dict(t=50, b=50, l=50, r=50)
+            'margin': dict(t=50, b=50, l=50, r=50),
+            'autosize':True
         }
         
         # Add any additional layout parameters
@@ -628,7 +629,7 @@ def create_plot(
         "pie": {
             "hole_size": 0.5,
             "show_percentage": True,
-            "show_total_value": True
+            "show_total_value": False
         },
         "bar": {
             "orientation": "v",
@@ -967,26 +968,39 @@ def _create_line_plot(
             ))
     else:
         # No categories, add all data as one trace
+        print(f"[LINE PLOT] Creating single trace without categories")
+        print(f"[LINE PLOT] Raw data count: {len(data)}")
+        
         # Sort items by x value for proper line connection
         sorted_data = sorted(data, key=lambda x: x.get(x_column, 0))
+        print(f"[LINE PLOT] Data sorted by x_column '{x_column}'")
         
         x_values = [item.get(x_column, 0) for item in sorted_data]
         y_values = [item.get(y_column, 0) for item in sorted_data]
+        
+        print(f"[LINE PLOT] X values: {x_values}")
+        print(f"[LINE PLOT] Y values: {y_values}")
+        print(f"[LINE PLOT] Mode: {kwargs.get('mode', 'lines')}")
         
         fig.add_trace(go.Scatter(
             x=x_values,
             y=y_values,
             mode=kwargs.get('mode', 'lines')
         ))
+        
+        print(f"[LINE PLOT] Scatter trace added successfully")
     
+    print(f"[LINE PLOT] Creating layout with title: '{title}'")
+    print(f"\nWidth {width}  Height:{height} \n\n")
     layout = PlotHelper.create_figure_layout(
         title=title,
-        width=width,
-        height=height,
+        width=None,
+        height=None,
         show_legend=kwargs.get('show_legend', True)
     )
     
     fig.update_layout(**layout)
+    print(f"[LINE PLOT] Layout applied successfully")
     
     return fig
 

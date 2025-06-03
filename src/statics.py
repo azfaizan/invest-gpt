@@ -251,3 +251,86 @@ COIN_MARKET_CAP_API_BASE_URL = "pro-api.coinmarketcap.com"
 INVESTMENT_MARKET_API_BASE_URL = "api-stg-invmkt.agentmarket.ae"
 WEBSEARCH_MODEL="gpt-4o-search-preview-2025-03-11"
 MODEL_NAME="gpt-4o"
+
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #E6ECF5;
+        }
+        #chart-container {
+            width: 100%;
+            height: 500px;
+        }
+       
+        .js-plotly-plot .plotly .main-svg {
+            font-size: 16px !important;
+        }
+        .js-plotly-plot .plotly .gtitle {
+            font-size: 2vw !important;
+            min-font-size: 14px;
+        }
+        .js-plotly-plot .plotly .xtick, 
+        .js-plotly-plot .plotly .ytick {
+            font-size: 1.5vw !important;
+            min-font-size: 12px;
+        }
+        .js-plotly-plot .plotly .annotation-text {
+            font-size: 1.5vw !important;
+            min-font-size: 12px;
+        }
+       
+        @media (max-width: 768px) {
+            #chart-container {
+                height: 300px;
+            }
+            .js-plotly-plot .plotly .gtitle {
+                font-size: 4vw !important;
+                min-font-size: 16px;
+            }
+            .js-plotly-plot .plotly .xtick, 
+            .js-plotly-plot .plotly .ytick {
+                font-size: 3vw !important;
+                min-font-size: 14px;
+            }
+            .js-plotly-plot .plotly .annotation-text {
+                font-size: 3vw !important;
+                min-font-size: 14px;
+            }
+        }
+        @media (max-width: 480px) {
+            .js-plotly-plot .plotly .gtitle {
+                font-size: 5vw !important;
+                min-font-size: 18px;
+            }
+            .js-plotly-plot .plotly .xtick, 
+            .js-plotly-plot .plotly .ytick {
+                font-size: 4vw !important;
+                min-font-size: 16px;
+            }
+            .js-plotly-plot .plotly .annotation-text {
+                font-size: 4vw !important;
+                min-font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="chart-container">
+        {plotly_html}
+    </div>
+    <script>
+        window.addEventListener('resize', function() {
+            Plotly.Plots.resize(document.querySelector('.js-plotly-plot'));
+        });
+    </script>
+</body>
+</html>
+"""
