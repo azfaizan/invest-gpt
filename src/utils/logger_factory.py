@@ -162,7 +162,6 @@ class AxiomLogger(LoggerInterface):
 class ConsoleLogger(LoggerInterface):
     """Simple console logger as fallback"""
     
-    # Map our log levels to Python's standard logging levels
     _LEVEL_MAP = {
         LogLevel.DEBUG: logging.DEBUG,
         LogLevel.INFO: logging.INFO,
@@ -178,7 +177,6 @@ class ConsoleLogger(LoggerInterface):
         self.service_name = service_name
         self.additional_fields = {}  # Keep empty for now as per requirement
         
-        # Setup Python's built-in logger with custom levels
         logging.addLevelName(self._LEVEL_MAP[LogLevel.NOTICE], "NOTICE")
         logging.addLevelName(self._LEVEL_MAP[LogLevel.ALERT], "ALERT")
         logging.addLevelName(self._LEVEL_MAP[LogLevel.EMERGENCY], "EMERGENCY")
@@ -237,6 +235,131 @@ class ConsoleLogger(LoggerInterface):
         self._log(LogLevel.EMERGENCY, message, context, exception)
 
 
+# NEW PROTOCOL-COMPLIANT AXIOM LOGGER (using existing interface)
+class ProtocolAxiomLogger(LoggerInterface):
+    """Protocol-compliant Axiom implementation using existing LoggerInterface"""
+    
+    def __init__(self, service_name: str, dataset: str = None, token: str = None, 
+                 environment: str = None, user_id: Optional[int] = None,
+                 request_path: Optional[str] = None, request_ip: Optional[str] = None,
+                 user_agent: Optional[str] = None, is_console_command: bool = False):
+        self.service_name = service_name
+        self.dataset = dataset or os.getenv("AXIOM_DATASET", "imcrm-logs")
+        self.token = token or os.getenv("AXIOM_TOKEN")
+        self.environment = environment or os.getenv("ENVIRONMENT", "development")
+        
+        # Store request context for this logger instance
+        self.default_context = {
+            "user_id": user_id,
+            "request_path": request_path,
+            "request_ip": request_ip,
+            "user_agent": user_agent,
+            "is_console_command": is_console_command
+        }
+        
+        if not self.token:
+            raise ValueError("Axiom token not provided or found in environment variables")
+        
+        try:
+            from axiom_py import Client
+            self.client = Client(token=self.token)
+            logging.info(f"Protocol Axiom logger initialized for service '{service_name}' and dataset '{self.dataset}'")
+        except ImportError:
+            raise ImportError("Could not import axiom_py. Ensure 'axiom-py' is installed.")
+        except Exception as e:
+            raise Exception(f"Error initializing Axiom client: {str(e)}")
+    
+    def _format_protocol_log_data(self, message: str, level: str, context: Dict[str, Any] = None, 
+                                  exception: Exception = None, extra: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Format log data according to organization protocol"""
+        trace_id = str(uuid.uuid4())
+        
+        # Build context according to protocol
+        context_data = {
+            "trace_id": trace_id,
+            "is_console_command": self.default_context.get("is_console_command", False)
+        }
+        
+        # Add request-related fields from default context if available
+        if self.default_context.get("request_path"):
+            context_data["request_path"] = self.default_context["request_path"]
+        if self.default_context.get("request_ip"):
+            context_data["request_ip"] = self.default_context["request_ip"]
+        if self.default_context.get("user_agent"):
+            context_data["user_agent"] = self.default_context["user_agent"]
+        
+        # Add any additional context
+        if context:
+            context_data.update(context)
+        
+        # Add exception info if available (following protocol format with nested exception object)
+        if exception:
+            import traceback
+            context_data["exception"] = {
+                "trace": ''.join(traceback.format_exception(type(exception), exception, exception.__traceback__)),
+                "message": str(exception),
+                "code": getattr(exception, 'code', 500)
+            }
+        
+        # Create the log entry following organization protocol
+        log_data = {
+            "message": message,
+            "context": context_data,  # Keep as dict, not stringified
+            "level": level,
+            "extra": json.dumps(extra) if extra else "",
+            "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+            "environment": self.environment,
+            "service": self.service_name
+        }
+        
+        # Add user_id if provided
+        if self.default_context.get("user_id") is not None:
+            log_data["user_id"] = self.default_context["user_id"]
+        
+        return log_data
+    
+    def _send_protocol_log(self, log_data: Dict[str, Any]):
+        """Send protocol log data to Axiom"""
+        try:
+            self.client.ingest_events(dataset=self.dataset, events=[log_data])
+        except Exception as e:
+            # Fallback to console logging if Axiom fails
+            fallback_msg = f"Failed to send protocol log to Axiom: {str(e)}\nLog data: {json.dumps(log_data, indent=2)}"
+            print(fallback_msg)
+    
+    def debug(self, message: str, context: Dict[str, Any] = None, extra: Dict[str, Any] = None):
+        log_data = self._format_protocol_log_data(message, LogLevel.DEBUG, context, extra=extra)
+        self._send_protocol_log(log_data)
+    
+    def info(self, message: str, context: Dict[str, Any] = None, extra: Dict[str, Any] = None):
+        log_data = self._format_protocol_log_data(message, LogLevel.INFO, context, extra=extra)
+        self._send_protocol_log(log_data)
+    
+    def notice(self, message: str, context: Dict[str, Any] = None, extra: Dict[str, Any] = None):
+        log_data = self._format_protocol_log_data(message, LogLevel.NOTICE, context, extra=extra)
+        self._send_protocol_log(log_data)
+    
+    def warning(self, message: str, context: Dict[str, Any] = None, extra: Dict[str, Any] = None):
+        log_data = self._format_protocol_log_data(message, LogLevel.WARNING, context, extra=extra)
+        self._send_protocol_log(log_data)
+    
+    def error(self, message: str, context: Dict[str, Any] = None, exception: Exception = None, extra: Dict[str, Any] = None):
+        log_data = self._format_protocol_log_data(message, LogLevel.ERROR, context, exception, extra=extra)
+        self._send_protocol_log(log_data)
+    
+    def critical(self, message: str, context: Dict[str, Any] = None, exception: Exception = None, extra: Dict[str, Any] = None):
+        log_data = self._format_protocol_log_data(message, LogLevel.CRITICAL, context, exception, extra=extra)
+        self._send_protocol_log(log_data)
+    
+    def alert(self, message: str, context: Dict[str, Any] = None, exception: Exception = None, extra: Dict[str, Any] = None):
+        log_data = self._format_protocol_log_data(message, LogLevel.ALERT, context, exception, extra=extra)
+        self._send_protocol_log(log_data)
+    
+    def emergency(self, message: str, context: Dict[str, Any] = None, exception: Exception = None, extra: Dict[str, Any] = None):
+        log_data = self._format_protocol_log_data(message, LogLevel.EMERGENCY, context, exception, extra=extra)
+        self._send_protocol_log(log_data)
+
+
 class LoggerFactory:
     """Factory for creating logger instances"""
     
@@ -287,6 +410,69 @@ class LoggerFactory:
             return ConsoleLogger(
                 service_name=service_name,
                 additional_fields={}  # Empty dict for now
+            )
+    
+    @staticmethod
+    def create_protocol_logger(
+        logger_type: str = "auto", 
+        service_name: str = "IMCRM", 
+        dataset: str = None, 
+        environment: str = None,
+        user_id: Optional[int] = None,
+        request_path: Optional[str] = None,
+        request_ip: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        is_console_command: bool = False
+    ) -> LoggerInterface:
+        """
+        Create and return a protocol-compliant logger instance
+        
+        Args:
+            logger_type: Type of logger to create ('axiom', 'console', or 'auto')
+            service_name: Name of the service for logging
+            dataset: Dataset name for Axiom logger
+            environment: Environment name (production, development, etc.)
+            user_id: User ID for request context
+            request_path: Request path for request context
+            request_ip: Request IP for request context
+            user_agent: User agent for request context
+            is_console_command: Whether this is a console command
+            
+        Returns:
+            LoggerInterface: A concrete protocol-compliant logger implementation
+        """
+        # Auto-detect logger type based on environment
+        if logger_type == "auto":
+            if os.getenv("AXIOM_TOKEN"):
+                logger_type = "axiom"
+            else:
+                logger_type = "console"
+        
+        # Create protocol logger based on type
+        try:
+            if logger_type == "axiom":
+                return ProtocolAxiomLogger(
+                    service_name=service_name,
+                    dataset=dataset,
+                    environment=environment,
+                    user_id=user_id,
+                    request_path=request_path,
+                    request_ip=request_ip,
+                    user_agent=user_agent,
+                    is_console_command=is_console_command
+                )
+            else:
+                # For console, just use the existing ConsoleLogger for now
+                return ConsoleLogger(
+                    service_name=service_name,
+                    additional_fields={}
+                )
+        except Exception as e:
+            print(f"Error creating {logger_type} protocol logger: {str(e)}")
+            print("Falling back to console logger")
+            return ConsoleLogger(
+                service_name=service_name,
+                additional_fields={}
             )
 
 # Create a default logger instance for direct import

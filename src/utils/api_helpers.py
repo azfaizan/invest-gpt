@@ -7,8 +7,8 @@ from src.tools import financial_api
 from src.statics import MODEL_NAME, STATICS
 
 
-logger = LoggerFactory.create_logger(service_name="invest-gpt")
-logger.notice("Application starting up, Logger initialized")
+logger = LoggerFactory.create_protocol_logger(service_name="invest-gpt", is_console_command=True)
+logger.notice("Application starting up, Protocol Logger initialized")
 
 security = HTTPBearer(
     scheme_name="BearerAuth",
@@ -96,7 +96,7 @@ Response (YES or NO):"""
         
     except Exception as e:
         # If classification fails, default to allowing the query (fail-safe)
-        logger.error(f"Error in query classification: {str(e)}")
+        logger.error(f"Error in query classification: {str(e)}", exception=e)
         return True
 
 
@@ -150,7 +150,7 @@ Cleaned text:"""
         
     except Exception as e:
         # If cleaning fails, return original text to avoid breaking the response
-        logger.error(f"Error in external reference cleaning: {str(e)}")
+        logger.error(f"Error in external reference cleaning: {str(e)}", exception=e)
         return text
 
 
